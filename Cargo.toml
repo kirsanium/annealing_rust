@@ -12,6 +12,7 @@ serde_json = "1.0.117"
 serde_with = "3.8.1"
 anyhow = "=1.0.76"
 derive_more = "0.99.17"
+clap = { version = "4.5.1", features = ["derive"] }
 
 # Ethereum related
 ethcontract = "0.25.7"

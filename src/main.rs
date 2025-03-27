@@ -1,4 +1,3 @@
-
 use bigdecimal::BigDecimal;
 use annealing_rust::model::TokenPair;
 use annealing_rust::domain::eth::{H160, U256, H256, self};
@@ -25,10 +24,11 @@ use std::fs;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use annealing_rust::cli::Args;
 
 fn main() {
-    let root_dir = "/home/kirsanium/annealing_rust/tests";
-    run(root_dir).unwrap();
+    let args = Args::parse();
+    run(args.test_dir.to_str().unwrap(), args.time_limit, args.verbose).unwrap();
 }
 
 #[serde_as]
@@ -239,7 +239,7 @@ fn uniswap_v2_pool(
     }))
 }
 
-fn run(root_dir: &str) -> Result<(), Box<dyn Error>> {
+fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Error>> {
     let filenames = get_filenames(root_dir).unwrap();
     let mut success = 0;
     let mut fail = 0;
@@ -267,7 +267,7 @@ fn run(root_dir: &str) -> Result<(), Box<dyn Error>> {
         let mut net = net.unwrap();
 
         // Run simulation
-        let best_eval = net.run_simulation(900).unwrap(); // 900ms time limit
+        let best_eval = net.run_simulation(time_limit).unwrap();
 
         // Update statistics
         if best_eval.metric >= 0.0 {
@@ -278,23 +278,33 @@ fn run(root_dir: &str) -> Result<(), Box<dyn Error>> {
             fail += 1;
         }
 
-        println!("{} {} {}", num, best_eval.metric >= 0.0, best_eval.metric * 2750.26);
+        if verbose {
+            println!("Processing auction {}: success={}, improvement={}", 
+                num, 
+                best_eval.metric >= 0.0, 
+                best_eval.metric * 2750.26
+            );
+        }
+
         create_path(&root_dir, &num, &best_eval)?;
     }
 
     // Print final statistics
     goods.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    println!("{} {} {} {}", 
+    println!("Results: success={}, fail={}, avg_improvement={}, median_improvement={}", 
         success, 
         fail, 
         sum_good / success as f64, 
         goods[success / 2]
     );
 
-    for good in goods {
-        print!("{} ", good);
+    if verbose {
+        print!("All improvements: ");
+        for good in goods {
+            print!("{} ", good);
+        }
+        println!();
     }
-    println!();
 
     Ok(())
 }
