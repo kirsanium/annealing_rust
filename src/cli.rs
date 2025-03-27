@@ -6,15 +6,15 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Path to the directory containing test inputs
-    #[arg(short, long, default_value = "tests")]
+    #[arg(long, default_value = "tests")]
     pub test_dir: PathBuf,
 
     /// Time limit for each simulation in milliseconds
-    #[arg(short, long, default_value_t = 900)]
+    #[arg(long, default_value_t = 900)]
     pub time_limit: u64,
 
     /// Whether to run in verbose mode
-    #[arg(short, long, default_value_t = false)]
+    #[arg(long, default_value_t = false)]
     pub verbose: bool,
 }
 
