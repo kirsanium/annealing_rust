@@ -240,6 +240,9 @@ fn uniswap_v2_pool(
 }
 
 fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Error>> {
+    // Create paths directory if it doesn't exist
+    let paths_dir = format!("{}/paths", root_dir);
+    fs::create_dir_all(&paths_dir)?;
     let filenames = get_filenames(root_dir).unwrap();
     let mut success = 0;
     let mut fail = 0;
