@@ -1,0 +1,81 @@
+[
+  [
+    {
+      "Liquidity": {
+        "id": "0x29567ae23d65225870c5bd738a6debe7ac5a1d66",
+        "gas": "108163",
+        "state": {
+          "fee": 0.01,
+          "tick": -8834,
+          "router": "0xe592427a0aece92de3edee1f18e0157c05861564",
+          "tokens": [
+            "0x8f08b70456eb22f6109f57b8fafe862ed28e6040",
+            "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+          ],
+          "liquidity": "99019571904143649235",
+          "sqrtPrice": "50941789298091310806823006120",
+          "liquidityNet": {
+            "0": "-449178570891858210",
+            "-600": "-10590018962647974954",
+            "-2200": "-724970482398011294",
+            "-2800": "-614270374450189206",
+            "-9800": "10560002394930086848",
+            "-10400": "724970482398011294",
+            "-10600": "644286942168077312",
+            "-12000": "449178570891858210",
+            "887200": "-86641133513755615571",
+            "-887000": "86628232968078005063",
+            "-887200": "12900545677610508"
+          }
+        },
+        "address": "0x29567ae23d65225870c5bd738a6debe7ac5a1d66",
+        "poolType": "uniswap_v3",
+        "inputToken": "0x8f08b70456eb22f6109f57b8fafe862ed28e6040",
+        "inputAmount": "3735752536168044352",
+        "internalize": false,
+        "outputToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "outputAmount": "1493124765959188252"
+      }
+    },
+    {
+      "Liquidity": {
+        "id": "1066",
+        "gas": "88892",
+        "state": {
+          "fee": 0.0001,
+          "reserves": [
+            {
+              "asset": {
+                "token": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+                "amount": "8164829956078036858273"
+              },
+              "scale": 1.1937546259290768
+            },
+            {
+              "asset": {
+                "token": "0x93d199263632a4ef4bb438f1feb99e57b4b5f0bd",
+                "amount": "2596148429267726256622852571515972"
+              },
+              "scale": 1.0
+            },
+            {
+              "asset": {
+                "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                "amount": "3163753765674825425894"
+              },
+              "scale": 1.0
+            }
+          ],
+          "amplificationParameter": 5000.0
+        },
+        "address": "0x93d199263632a4ef4bb438f1feb99e57b4b5f0bd",
+        "poolType": "balancer_v2_stable",
+        "inputToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "inputAmount": "1493124765959188252",
+        "internalize": false,
+        "outputToken": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+        "outputAmount": "1251120644181980040"
+      }
+    }
+  ]
+]

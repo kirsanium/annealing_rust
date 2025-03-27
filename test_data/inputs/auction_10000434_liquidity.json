@@ -1,0 +1,58 @@
+[
+  [
+    {
+      "Liquidity": {
+        "id": "0x6c2b8b3f7a909531c4c55ca6a0a7c3ab65e8d94a",
+        "gas": "90171",
+        "state": {
+          "fee": 0.003,
+          "router": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+          "reserves": [
+            {
+              "token": "0x4955f6641bf9c8c163604c321f4b36e988698f75",
+              "amount": "87366340803259429"
+            },
+            {
+              "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+              "amount": "37345339661055537372"
+            }
+          ]
+        },
+        "address": "0x6c2b8b3f7a909531c4c55ca6a0a7c3ab65e8d94a",
+        "poolType": "uniswap_v2",
+        "inputToken": "0x4955f6641bf9c8c163604c321f4b36e988698f75",
+        "inputAmount": "314881860460510",
+        "internalize": false,
+        "outputToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "outputAmount": "133714128044637924"
+      }
+    },
+    {
+      "Liquidity": {
+        "id": "0xc555d55279023e732ccd32d812114caf5838fd46",
+        "gas": "90171",
+        "state": {
+          "fee": 0.003,
+          "router": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+          "reserves": [
+            {
+              "token": "0x812ba41e071c7b7fa4ebcfb62df5f45f6fa853ee",
+              "amount": "8775172240525361342"
+            },
+            {
+              "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+              "amount": "1196094819100914000644"
+            }
+          ]
+        },
+        "address": "0xc555d55279023e732ccd32d812114caf5838fd46",
+        "poolType": "uniswap_v2",
+        "inputToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "inputAmount": "133714128044637924",
+        "internalize": false,
+        "outputToken": "0x812ba41e071c7b7fa4ebcfb62df5f45f6fa853ee",
+        "outputAmount": "977944239640190"
+      }
+    }
+  ]
+]

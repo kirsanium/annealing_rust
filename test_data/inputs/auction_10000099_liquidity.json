@@ -1,0 +1,31 @@
+[
+  [
+    {
+      "Liquidity": {
+        "id": "0x1ffec7119e315b15852557f654ae0052f76e6ae1",
+        "gas": "90171",
+        "state": {
+          "fee": 0.003,
+          "router": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+          "reserves": [
+            {
+              "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+              "amount": "968781718710769495357"
+            },
+            {
+              "token": "0xf94e7d0710709388bce3161c32b4eea56d3f91cc",
+              "amount": "10802206757972884928589280"
+            }
+          ]
+        },
+        "address": "0x1ffec7119e315b15852557f654ae0052f76e6ae1",
+        "poolType": "uniswap_v2",
+        "inputToken": "0xf94e7d0710709388bce3161c32b4eea56d3f91cc",
+        "inputAmount": "6714469410807911575687",
+        "internalize": false,
+        "outputToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "outputAmount": "600000000000000000"
+      }
+    }
+  ]
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "uid": "0x667b8f497012d6bf1e1d2f03c647c303ff9358da7aba1c77d55d2820faa81941ba3cb449bd2b4adddbc894d8697f5170800eadecffffffff",
+    "sell_token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "buy_token": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "sell_amount": 3660000000000000000,
+    "buy_amount": 9814375498
+  }
+]
