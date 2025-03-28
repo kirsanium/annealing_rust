@@ -250,7 +250,7 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
     let mut goods = Vec::new();
 
     let prices = parse_prices(&format!("{}/normalized_prices.json", root_dir)).unwrap();
-
+    let mut total_evals_run = 0;
     // Process files in chunks of 3
     for file_chunk in filenames.chunks(3) {
         let num = extract_number_from_filename(&file_chunk[0]);
@@ -271,6 +271,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
 
         // Run simulation
         let best_eval = net.run_simulation(time_limit).unwrap();
+
+        total_evals_run += net.evals_run;
 
         // Update statistics
         if best_eval.metric >= 0.0 {
@@ -308,6 +310,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         }
         println!();
     }
+
+    println!("Total evaluations run: {}", total_evals_run);
 
     Ok(())
 }

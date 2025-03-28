@@ -76,6 +76,7 @@ pub struct Net {
     final_prices_map: Prices,
     orders: Vec<Order>,
     save_orders: Vec<Order>,
+    pub evals_run: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +193,7 @@ impl Net {
     }
 
     fn eval(&mut self) -> Result<Evaluation, AnnealingError> {
+        self.evals_run += 1;
         let mut cur_resources = self.init.clone();
         let mut num_transactions = 0;
         let mut outputs = Vec::new();
