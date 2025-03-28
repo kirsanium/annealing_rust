@@ -228,7 +228,8 @@ impl Net {
         self.eval()
     }
 
-    fn eval(&self) -> Result<Evaluation, AnnealingError> {
+    fn eval(&mut self) -> Result<Evaluation, AnnealingError> {
+        self.evals_run += 1;
         let mut cur_resources = self.init.clone();
         let mut num_transactions = 0;
         let mut outputs = Vec::new();
