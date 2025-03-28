@@ -8,9 +8,9 @@ use std::fs::{self, File};
 use std::error::Error;
 use serde::Serialize;
 use std::sync::Arc;
+use crate::util::serialize::{self, serialization::HexOrDecimalU256};
 use serde_with::serde_as;
 use ethcontract::U256;
-use crate::util::serialize::{self, serialization::HexOrDecimalU256};
 
 pub type Pool = Arc<dyn BasePool>;
 pub type PoolId = String;
@@ -20,7 +20,6 @@ pub type Prices = HashMap<String, U256>;
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 pub struct Order {
-    pub id: String,
     pub buy_token: String,
     pub sell_token: String,
     #[serde_as(as = "serialize::U256")]
@@ -44,7 +43,7 @@ pub trait BasePool: std::fmt::Debug + Sync + Send {
 
 #[derive(Debug, Clone, Default)]
 pub struct AnnealingArgs {
-    pub prices: Prices,
+    pub prices: HashMap<String, U256>,
     pub tokens: Vec<String>,
     pub pools: Vec<Pool>,
     pub orders: Vec<Order>,
@@ -58,7 +57,6 @@ impl Annealing {
     }
 }
 
-
 #[derive(Clone, Default)]
 pub struct Net {
     n: usize,
@@ -66,16 +64,13 @@ pub struct Net {
     save_edges: Vec<Vec<Edge>>,
     topsort: Vec<usize>,
     prices: Vec<U256>,
-    save_prices: Vec<U256>,
     init: Vec<U256>,
     target: Vec<U256>,
-    target2: Vec<U256>,
     currencies_to_int: HashMap<String, usize>,
+    prices_map: HashMap<String, U256>,
     int_to_currencies: Vec<String>,
-    prices_map: Prices,
-    final_prices_map: Prices,
     orders: Vec<Order>,
-    save_orders: Vec<Order>,
+    pub evals_run: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -89,12 +84,10 @@ pub enum AnnealingError {
 pub struct Evaluation {
     pub interactions: Vec<Interaction>,
     pub metric: f64,
-    pub orders: Vec<Order>,
-    pub prices: Prices,
 }
 
 impl Net {
-    pub fn new(prices: Prices, tokens: Vec<String>, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
+    pub fn new(prices: HashMap<String, U256>, tokens: Vec<String>, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
         let mut net = Net::default();
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
@@ -110,12 +103,13 @@ impl Net {
         for (i, address) in tokens.iter().enumerate() {
             net.currencies_to_int.insert(address.clone(), i);
             net.int_to_currencies[i] = address.clone();
+            // Calculate normalized price relative to WETH
+            // Note: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" is WETH address
             if net.prices_map.get(address).is_none() {
                 return Err(AnnealingError::NoPrice(address.clone()));
             }
             net.prices[i] = net.prices_map[address];
         }
-        net.save_prices = net.prices.clone();
 
         net.insert_pools(pools);
         net.set_orders(orders);
@@ -125,26 +119,27 @@ impl Net {
     }
 
     pub fn run_simulation(&mut self, max_time_ms: u64) -> Result<Evaluation, AnnealingError> {
+        let num_edges = self.edges.iter().map(|v| v.len()).sum::<usize>();
+        if num_edges == 0 {
+            return Err(AnnealingError::NoEdges);
+        }
+        
+        self.reset_topsort(0.0);
+
         let start = Instant::now();
         let mut rng = rng();
         
-        let mut cur_eval: f64;
-        let mut best_eval = f64::MIN;
+        let mut cur_eval = self.eval()?.metric;
+        let mut best_eval = cur_eval;
         let init_n = self.clone();
         let mut best_n = self.clone();
 
         while start.elapsed() < Duration::from_millis(max_time_ms) {
             *self = init_n.clone();
+            cur_eval = self.eval()?.metric;
 
             let elapsed_ms = start.elapsed().as_millis() as f64; 
             self.reset_topsort(elapsed_ms / (max_time_ms as f64));
-
-            let num_edges = self.edges.iter().map(|v| v.len()).sum::<usize>();
-            if num_edges == 0 {
-                return Err(AnnealingError::NoEdges);
-            }
-
-            cur_eval = self.eval()?.metric;
 
             let mut temp = 2e3;
             while temp >= 0.00001 {
@@ -187,11 +182,53 @@ impl Net {
                 temp *= 0.95;
             }
         }
+        *self = best_n.clone();
+        cur_eval = best_eval;
+        let mut temp = 1.0;
+        while temp >= 0.00001 {
+            // Choose random edge to modify
+            let change_edge = rng.random_range(0..num_edges);
+            let (cur_v, cur_index) = self.find_edge_indices(change_edge);
+            
+            let cur_edge = self.edges[cur_v][cur_index].clone();
+            let edge_cur_rate = cur_edge.rate;
+            
+            // Modify edge rate
+            let edge_new_rate = if edge_cur_rate == 0.0 {
+                LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng)
+            } else {
+                match rng.random_range(0..3) {
+                    0 => 0.0,
+                    1 => LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng),
+                    _ => edge_cur_rate * 2.0f64.powf(rng.random_range(-1.0..1.0))
+                }
+            };
+
+            // Try new edge rate
+            let mut new_edge = cur_edge.clone();
+            new_edge.rate = edge_new_rate;
+            self.edges[cur_v][cur_index] = new_edge;
+            
+            let delta = self.eval()?.metric - cur_eval;
+            let rand_value: f64 = rng.random::<f64>();
+            if delta > 0.0 || rand_value < (delta / temp).exp() {
+                cur_eval += delta;
+            } else {
+                self.edges[cur_v][cur_index] = cur_edge;
+            }
+
+            if cur_eval > best_eval {
+                best_eval = cur_eval;
+                best_n = self.clone();
+            }
+
+            temp *= 0.995;
+        }
         *self = best_n;
         self.eval()
     }
 
-    fn eval(&mut self) -> Result<Evaluation, AnnealingError> {
+    fn eval(&self) -> Result<Evaluation, AnnealingError> {
         let mut cur_resources = self.init.clone();
         let mut num_transactions = 0;
         let mut outputs = Vec::new();
@@ -239,24 +276,14 @@ impl Net {
 
         // Calculate metric
         let mut ans = 0.0;
-        self.final_prices_map.clear();
+
         for i in 0..self.n {
             if self.target[i] != U256::from(0) {
                 if cur_resources[i] >= self.target[i] {
-                    self.final_prices_map.insert(
-                        self.int_to_currencies[i].clone(),
-                        self.prices[i] * self.target[i] / cur_resources[i]
-                    );
-                    ans += ((cur_resources[i] - self.target2[i]) * self.prices[i]).to_f64_lossy();
+                    ans += ((cur_resources[i] - self.target[i]) * self.prices[i]).to_f64_lossy();
                 } else {
                     ans -= ((self.target[i] - cur_resources[i]) * self.prices[i] * U256::from(10000)).to_f64_lossy();
                 }
-            }
-            if self.init[i] != U256::from(0) {
-                self.final_prices_map.insert(
-                    self.int_to_currencies[i].clone(),
-                    self.prices[i]
-                );
             }
         }
 
@@ -265,8 +292,6 @@ impl Net {
         Ok(Evaluation {
             interactions: outputs,
             metric: ans,
-            orders: self.orders.clone(),
-            prices: self.final_prices_map.clone(),
         })
     }
 
@@ -298,90 +323,24 @@ impl Net {
     }
 
     fn set_orders(&mut self, orders: Vec<Order>) {
-        self.save_orders = orders;
+        self.orders = orders;
     }
 
     fn reset_topsort(&mut self, t: f64) {
         // Reset edges from saved state
         self.edges = self.save_edges.clone();
         self.target = vec![U256::from(0); self.n];
-        self.target2 = vec![U256::from(0); self.n];
         self.init = vec![U256::from(0); self.n];
 
-        self.choose_orders(t);
-        self.build_topsort(t);
-    }
-
-    fn choose_orders(&mut self, t: f64) {
-        let mut rng = rng();
-        let mut current_orders = vec![];
-
-        while current_orders.is_empty() {
-            for order in &self.save_orders {
-                if t < 0.4 || rng.random_range(0..100) < 50 {
-                    current_orders.push(order.clone());
-                }
-            }
-        }
-
-        self.orders = current_orders;
-        self.set_values_for_chosen_orders();
-    }
-
-    fn set_values_for_chosen_orders(&mut self) {
-        self.prices = vec![U256::from(0); self.n];
-        
-        let mut flag1 = true;
-        while flag1 {
-            flag1 = false;
-            let mut flag2 = true;
-            
-            while flag2 {
-                flag2 = false;
-                
-                for order in &self.orders {
-                    let sell_idx = self.currencies_to_int[&order.sell_token];
-                    let buy_idx = self.currencies_to_int[&order.buy_token];
-                    
-                    if self.prices[sell_idx] != U256::from(0) {
-                        let limit_price = self.prices[sell_idx] * order.sell_amount / order.buy_amount;
-                        if self.prices[buy_idx] == U256::from(0) || self.prices[buy_idx] > limit_price {
-                            self.prices[buy_idx] = limit_price;
-                            flag2 = true;
-                        }
-                    }
-                    
-                    if self.prices[buy_idx] != U256::from(0) {
-                        let limit_price = self.prices[buy_idx] * order.buy_amount / order.sell_amount;
-                        if self.prices[sell_idx] == U256::from(0) || self.prices[sell_idx] < limit_price {
-                            self.prices[sell_idx] = limit_price;
-                            flag2 = true;
-                        }
-                    }
-                }
-            }
-            
-            for order in &self.orders {
-                let sell_idx = self.currencies_to_int[&order.sell_token];
-                if self.prices[sell_idx] == U256::from(0) {
-                    self.prices[sell_idx] = self.save_prices[sell_idx];
-                    flag1 = true;
-                    break;
-                }
-            }
-        }
-        
-        // Initialize target2, update buy amounts, and set init/target values
-        self.target2 = vec![U256::from(0); self.n];
-        for order in &mut self.orders {
+        for order in &self.orders {
             let buy_idx = self.currencies_to_int[&order.buy_token];
             let sell_idx = self.currencies_to_int[&order.sell_token];
-            
-            self.target2[buy_idx] += order.buy_amount;
-            order.buy_amount = order.sell_amount * self.prices[sell_idx] / self.prices[buy_idx];
-            self.init[sell_idx] += order.sell_amount;
+
             self.target[buy_idx] += order.buy_amount;
+            self.init[sell_idx] += order.sell_amount;
         }
+
+        self.build_topsort(t);
     }
 
     fn build_topsort(&mut self, t: f64) {
@@ -442,7 +401,8 @@ impl Net {
             }
         }
 
-        if t > 0.8 {
+        // Special case for t > 30
+        if t > 0.5 {
             self.topsort = (0..self.n).collect();
             self.topsort.shuffle(&mut rng());
             for (i, &v) in self.topsort.iter().enumerate() {

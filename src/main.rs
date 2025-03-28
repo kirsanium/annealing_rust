@@ -37,9 +37,9 @@ struct PathOutput {
     claimed_improvement: f64,
     success: bool,
     outputs: Vec<Interaction>,
-    orders: Vec<Order>,
-    #[serde_as(as = "HashMap<_, HexOrDecimalU256>")]
-    prices: Prices,
+    // orders: Vec<Order>,
+    // #[serde_as(as = "HashMap<_, HexOrDecimalU256>")]
+    // prices: Prices,
 }
 
 fn get_filenames(directory_path: &str) -> Result<Vec<String>, Box<dyn Error>> {
@@ -65,8 +65,8 @@ fn create_path(
         claimed_improvement: eval.metric,
         success: eval.metric >= 0.0,
         outputs: eval.interactions.to_vec(),
-        orders: eval.orders.to_vec(),
-        prices: eval.prices.clone(),
+        // orders: eval.orders.to_vec(),
+        // prices: eval.prices.clone(),
     };
 
     let path = format!("{}/paths/path{}.json", base_dir, num);
@@ -106,7 +106,6 @@ fn parse_orders(filename: &str) -> Result<Vec<Order>, Box<dyn Error>> {
     let orders: Vec<serde_json::Value> = serde_json::from_reader(file)?;
 
     let orders: Vec<_> = orders.iter().map(|order| Order {
-        id: order["uid"].as_str().unwrap().to_string(),
         buy_token: order["buy_token"].as_str().unwrap().to_string(),
         sell_token: order["sell_token"].as_str().unwrap().to_string(),
         sell_amount: U256::from_f64_lossy(order["sell_amount"].as_f64().unwrap()),
@@ -252,6 +251,7 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
     let prices = parse_prices(&format!("{}/normalized_prices.json", root_dir)).unwrap();
 
     // Process files in chunks of 3
+    let mut evals_run = 0;
     for file_chunk in filenames.chunks(3) {
         let num = extract_number_from_filename(&file_chunk[0]);
         
@@ -271,6 +271,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
 
         // Run simulation
         let best_eval = net.run_simulation(time_limit).unwrap();
+
+        evals_run += net.evals_run;
 
         // Update statistics
         if best_eval.metric >= 0.0 {
@@ -308,6 +310,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         }
         println!();
     }
+
+    println!("Total evaluations run: {}", evals_run);
 
     Ok(())
 }
