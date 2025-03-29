@@ -260,7 +260,7 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         let orders = parse_orders(&format!("{}/inputs/auction_{}_orders.json", root_dir, num)).unwrap();
         let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num), &currencies).unwrap();
 
-        let net = Net::new(prices.clone(), currencies, pools, orders);
+        let net = Net::new(prices.clone(), pools, orders);
 
         if let Err(e) = net {
             println!("Error: {:?}", e);

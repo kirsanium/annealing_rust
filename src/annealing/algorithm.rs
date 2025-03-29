@@ -1,7 +1,7 @@
 use rand::seq::SliceRandom;
 use rand::{rng, Rng};
 use rand_distr::{Distribution, LogNormal};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 use std::str::FromStr;
 use std::time::{Instant, Duration};
 use std::fs::{self, File};
@@ -45,7 +45,6 @@ pub trait BasePool: std::fmt::Debug + Sync + Send {
 #[derive(Debug, Clone, Default)]
 pub struct AnnealingArgs {
     pub prices: Prices,
-    pub tokens: Vec<String>,
     pub pools: Vec<Pool>,
     pub orders: Vec<Order>,
 }
@@ -53,7 +52,7 @@ pub struct AnnealingArgs {
 pub struct Annealing;
 impl Annealing {
     pub fn run(time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
-        let mut net = Net::new(args.prices, args.tokens, args.pools, args.orders)?;
+        let mut net = Net::new(args.prices, args.pools, args.orders)?;
         net.run_simulation(time_ms)
     }
 }
@@ -84,6 +83,7 @@ pub enum AnnealingError {
     NoPrice(String),
     GetAmountOut(String),
     NoEdges,
+    EmptyNet,
 }
 
 #[derive(Debug, Clone)]
@@ -95,10 +95,22 @@ pub struct Evaluation {
 }
 
 impl Net {
-    pub fn new(prices: Prices, tokens: Vec<String>, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
+    pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
         let mut net = Net::default();
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
+        }
+
+        let tokens = pools.iter().map(|p|
+            vec![p.get_tokens().0, p.get_tokens().1]).flatten().collect::<HashSet<_>>();
+
+        let order_tokens = orders.iter().map(|o|
+            vec![o.sell_token.clone(), o.buy_token.clone()]).flatten().collect::<HashSet<_>>();
+
+        let tokens = tokens.union(&order_tokens).collect::<HashSet<_>>();
+
+        if tokens.is_empty() || pools.is_empty() {
+            return Err(AnnealingError::EmptyNet);
         }
 
         net.n = tokens.len();
@@ -107,8 +119,7 @@ impl Net {
         net.init = vec![U256::from(0); net.n];
         net.target = vec![U256::from(0); net.n];
         net.edges = vec![Vec::new(); net.n];
-
-        for (i, address) in tokens.iter().enumerate() {
+        for (i, address) in tokens.into_iter().enumerate() {
             net.currencies_to_int.insert(address.clone(), i);
             net.int_to_currencies[i] = address.clone();
             if net.prices_map.get(address).is_none() {
@@ -318,10 +329,34 @@ impl Net {
         let mut rng = rng();
         let mut current_orders = vec![];
 
+        // Extract all unique tokens from both sell_token and buy_token.
+        let mut tokens: Vec<String> = self
+            .save_orders
+            .iter()
+            .flat_map(|order| vec![order.sell_token.clone(), order.buy_token.clone()])
+            .collect();
+        tokens.sort();
+        tokens.dedup();
+
+        // Loop until at least one valid order is chosen.
         while current_orders.is_empty() {
+            // Shuffle tokens randomly.
+            tokens.shuffle(&mut rng);
+
+            // Create a mapping from each token to its index in the shuffled vector.
+            let token_positions: HashMap<String, usize> = tokens
+                .iter()
+                .enumerate()
+                .map(|(i, token)| (token.clone(), i))
+                .collect();
+
+            // Iterate over save_orders and choose orders based on the initial condition
+            // and the acyclic condition (sell_token must come before buy_token).
             for order in &self.save_orders {
                 if t < 0.4 || rng.random_range(0..100) < 50 {
-                    current_orders.push(order.clone());
+                    if token_positions[&order.sell_token] < token_positions[&order.buy_token] {
+                        current_orders.push(order.clone());
+                    }
                 }
             }
         }
