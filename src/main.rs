@@ -272,8 +272,6 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         // Run simulation
         let best_eval = net.run_simulation(time_limit).unwrap();
 
-        total_evals_run += net.evals_run;
-
         // Update statistics
         if best_eval.metric >= 0.0 {
             success += 1;

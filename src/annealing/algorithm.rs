@@ -2,15 +2,14 @@ use rand::seq::SliceRandom;
 use rand::{rng, Rng};
 use rand_distr::{Distribution, LogNormal};
 use std::collections::{HashMap, VecDeque, HashSet};
-use std::str::FromStr;
 use std::time::{Instant, Duration};
-use std::fs::{self, File};
-use std::error::Error;
 use serde::Serialize;
 use std::sync::Arc;
 use serde_with::serde_as;
 use ethcontract::U256;
-use crate::util::serialize::{self, serialization::HexOrDecimalU256};
+use crate::util::serialize;
+use std::fmt;
+use itertools::Itertools;
 
 pub type Pool = Arc<dyn BasePool>;
 pub type PoolId = String;
@@ -36,6 +35,12 @@ struct Edge {
     pool: Pool,
 }
 
+impl fmt::Debug for Edge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Edge {{ target: {}, rate: {}, tokens: {:?} }}", self.target, self.rate, self.pool.get_tokens())
+    }
+}
+
 pub trait BasePool: std::fmt::Debug + Sync + Send {
     fn get_amount_out(&self, token_in: &str, token_out: &str, amount_in: U256) -> Result<U256, AnnealingError>;
     fn get_id(&self) -> String;
@@ -58,7 +63,7 @@ impl Annealing {
 }
 
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Net {
     n: usize,
     edges: Vec<Vec<Edge>>,
@@ -75,7 +80,7 @@ pub struct Net {
     final_prices_map: Prices,
     orders: Vec<Order>,
     save_orders: Vec<Order>,
-    pub evals_run: usize,
+    evals_called: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -88,8 +93,10 @@ pub enum AnnealingError {
 
 #[derive(Debug, Clone)]
 pub struct Evaluation {
-    pub interactions: Vec<Interaction>,
+    // Positive metric means better solution than the initial state.
+    // The bigger the metric, the better the solution.
     pub metric: f64,
+    pub interactions: Vec<Interaction>,
     pub orders: Vec<Order>,
     pub prices: Prices,
 }
@@ -100,6 +107,13 @@ impl Net {
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
         }
+
+        let pools = pools.into_iter()
+            .sorted_by_key(|p| p.get_id())
+            .dedup_by(|a, b| a.get_id() == b.get_id()).collect::<Vec<_>>();
+        let orders = orders.into_iter()
+            .sorted_by_key(|o| o.id.clone())
+            .dedup_by(|a, b| a.id == b.id).collect::<Vec<_>>();
 
         let tokens = pools.iter().map(|p|
             vec![p.get_tokens().0, p.get_tokens().1]).flatten().collect::<HashSet<_>>();
@@ -112,6 +126,8 @@ impl Net {
         if tokens.is_empty() || pools.is_empty() {
             return Err(AnnealingError::EmptyNet);
         }
+
+        println!("Creating net: {} tokens, {} orders", tokens.len(), orders.len());
 
         net.n = tokens.len();
         net.int_to_currencies.resize(net.n, String::new());
@@ -146,10 +162,12 @@ impl Net {
         let mut best_n = self.clone();
 
         while start.elapsed() < Duration::from_millis(max_time_ms) {
+            println!("Starting new iteration");
             *self = init_n.clone();
 
             let elapsed_ms = start.elapsed().as_millis() as f64; 
             self.reset_topsort(elapsed_ms / (max_time_ms as f64));
+            println!("Topsort reset");
 
             let num_edges = self.edges.iter().map(|v| v.len()).sum::<usize>();
             if num_edges == 0 {
@@ -204,7 +222,8 @@ impl Net {
     }
 
     fn eval(&mut self) -> Result<Evaluation, AnnealingError> {
-        self.evals_run += 1;
+        println!("Evaluating");
+        self.evals_called += 1;
         let mut cur_resources = self.init.clone();
         let mut num_transactions = 0;
         let mut outputs = Vec::new();
@@ -302,6 +321,7 @@ impl Net {
     }
 
     fn insert_pools(&mut self, pools: Vec<Pool>) {
+        println!("Inserting pools");
         for pool in pools {
             let (token0, token1) = pool.get_tokens();
             self.add_edge(&token0, &token1, pool.clone());
@@ -310,12 +330,31 @@ impl Net {
         self.save_edges = self.edges.clone();
     }
 
+    fn add_edge(&mut self, token_in: &str, token_out: &str, pool: Pool) {
+        self.add_edge_with_rate(token_in, token_out, 1.0, pool);
+    }
+
+    fn add_edge_with_rate(&mut self, token_in: &str, token_out: &str, rate: f64, pool: Pool) {
+        let from_idx = *self.currencies_to_int.get(token_in).unwrap_or_else(|| {
+            panic!("Token {} not found", token_in);
+        });
+        let to_idx = *self.currencies_to_int.get(token_out).unwrap_or_else(|| {
+            panic!("Token {} not found", token_out);
+        });
+
+        self.edges[from_idx].push(Edge {
+            target: to_idx,
+            rate,
+            pool,
+        });
+    }
+
     fn set_orders(&mut self, orders: Vec<Order>) {
         self.save_orders = orders;
     }
 
     fn reset_topsort(&mut self, t: f64) {
-        // Reset edges from saved state
+        println!("Resetting topsort");
         self.edges = self.save_edges.clone();
         self.target = vec![U256::from(0); self.n];
         self.target2 = vec![U256::from(0); self.n];
@@ -326,6 +365,7 @@ impl Net {
     }
 
     fn choose_orders(&mut self, t: f64) {
+        println!("Choosing orders");
         let mut rng = rng();
         let mut current_orders = vec![];
 
@@ -422,6 +462,7 @@ impl Net {
     }
 
     fn build_topsort(&mut self, t: f64) {
+        println!("Building topsort");
         let mut stack = VecDeque::new();
         let mut dist = vec![1e9; self.n];
         let mut num = vec![0; self.n];
@@ -498,31 +539,16 @@ impl Net {
         }
         self.edges = edges2;
     }
-
-    fn add_edge(&mut self, token_in: &str, token_out: &str, pool: Pool) {
-        self.add_edge_with_rate(token_in, token_out, 1.0, pool);
-    }
-
-    fn add_edge_with_rate(&mut self, token_in: &str, token_out: &str, rate: f64, pool: Pool) {
-        let from_idx = self.currencies_to_int[token_in];
-        let to_idx = self.currencies_to_int[token_out];
-
-        self.edges[from_idx].push(Edge {
-            target: to_idx,
-            rate,
-            pool,
-        });
-    }
 }
 
 #[serde_as]
 #[derive(Debug, Serialize, Clone)]
 pub struct Interaction {
-    pool_id: PoolId,
-    in_token_id: String,
-    #[serde_as(as = "HexOrDecimalU256")]
-    amount_in: U256,
-    out_token_id: String,
-    #[serde_as(as = "HexOrDecimalU256")]
-    amount_out: U256,
+    pub pool_id: PoolId,
+    pub in_token_id: String,
+    #[serde_as(as = "serialize::U256")]
+    pub amount_in: U256,
+    pub out_token_id: String,
+    #[serde_as(as = "serialize::U256")]
+    pub amount_out: U256,
 }
