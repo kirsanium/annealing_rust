@@ -81,6 +81,7 @@ pub struct Net {
     orders: Vec<Order>,
     save_orders: Vec<Order>,
     evals_called: usize,
+    gas_price: U256,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +108,8 @@ impl Net {
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
         }
+
+        net.gas_price = U256::from(8361242131u64);
 
         let pools = pools.into_iter()
             .sorted_by_key(|p| p.get_id())
@@ -246,14 +249,20 @@ impl Net {
                 if cur_resources[i] == U256::from(0) || edge.rate == 0.0 {
                     continue;
                 }
-
-                num_transactions += 1;
                 let amount_in = U256::from_f64_lossy(cur_resources[i].to_f64_lossy() * edge.rate / sum_rate);
                 let add = edge.pool.get_amount_out(
                     &self.int_to_currencies[i],
                     &self.int_to_currencies[edge.target],
                     amount_in
-                )?;
+                );
+
+                if add.is_err() {
+                    continue;
+                }
+
+                let add = add.unwrap();
+
+                num_transactions += 1;
                 
                 cur_resources[edge.target] += add;
 
@@ -292,7 +301,7 @@ impl Net {
             }
         }
 
-        ans -= num_transactions as f64 * 0.0003;
+        ans -= self.fine_for_pool_usages(num_transactions);
 
         Ok(Evaluation {
             interactions: outputs,
@@ -300,6 +309,11 @@ impl Net {
             orders: self.orders.clone(),
             prices: self.final_prices_map.clone(),
         })
+    }
+
+    fn fine_for_pool_usages(&self, amount: u32) -> f64 {
+        let fine_per_pool_usage = 100_000. * self.gas_price.to_f64_lossy();
+        amount as f64 * 1e18 * fine_per_pool_usage
     }
 
     fn find_edge_indices(&self, change_edge: usize) -> (usize, usize) {
@@ -421,7 +435,7 @@ impl Net {
                     let buy_idx = self.currencies_to_int[&order.buy_token];
                     
                     if self.prices[sell_idx] != U256::from(0) {
-                        let limit_price = self.prices[sell_idx] * order.sell_amount / order.buy_amount;
+                        let limit_price = self.prices[sell_idx] * order.sell_amount / order.buy_amount + U256::one();
                         if self.prices[buy_idx] == U256::from(0) || self.prices[buy_idx] > limit_price {
                             self.prices[buy_idx] = limit_price;
                             flag2 = true;
@@ -429,7 +443,7 @@ impl Net {
                     }
                     
                     if self.prices[buy_idx] != U256::from(0) {
-                        let limit_price = self.prices[buy_idx] * order.buy_amount / order.sell_amount;
+                        let limit_price = self.prices[buy_idx] * order.buy_amount / order.sell_amount + U256::one();
                         if self.prices[sell_idx] == U256::from(0) || self.prices[sell_idx] < limit_price {
                             self.prices[sell_idx] = limit_price;
                             flag2 = true;
@@ -455,7 +469,7 @@ impl Net {
             let sell_idx = self.currencies_to_int[&order.sell_token];
             
             self.target2[buy_idx] += order.buy_amount;
-            order.buy_amount = order.sell_amount * self.prices[sell_idx] / self.prices[buy_idx];
+            order.buy_amount = order.sell_amount * self.prices[sell_idx] / self.prices[buy_idx] + U256::one();
             self.init[sell_idx] += order.sell_amount;
             self.target[buy_idx] += order.buy_amount;
         }

@@ -27,6 +27,7 @@ use std::sync::Arc;
 use annealing_rust::cli::Args;
 
 fn main() {
+    println!("START");
     let args = Args::parse();
     run(args.test_dir.to_str().unwrap(), args.time_limit, args.verbose).unwrap();
 }

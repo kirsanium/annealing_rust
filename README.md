@@ -26,7 +26,7 @@ Available options:
 
 1. Run with custom test directory:
 ```bash
-cargo run -- --test-dir /path/to/tests
+cargo run -- --test-dir /path/to/test_data
 ```
 
 2. Set a custom time limit:
