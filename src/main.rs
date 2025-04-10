@@ -260,8 +260,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         let currencies = parse_currencies(&format!("{}/inputs/auction_{}_tokens.json", root_dir, num)).unwrap();
         let orders = parse_orders(&format!("{}/inputs/auction_{}_orders.json", root_dir, num)).unwrap();
         let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num), &currencies).unwrap();
-
-        let net = Net::new(prices.clone(), pools, orders);
+        let base_allowed_amounts = orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
+        let net = Net::new(prices.clone(), pools, orders, base_allowed_amounts);
 
         if let Err(e) = net {
             println!("Error: {:?}", e);

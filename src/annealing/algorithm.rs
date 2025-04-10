@@ -97,8 +97,8 @@ pub struct Net {
     prices: Vec<U256>,
     save_prices: Vec<U256>,
     init: Vec<U256>,
-    target: Vec<U256>,
-    target2: Vec<U256>,
+    target_required: Vec<U256>,
+    target_default: Vec<U256>,
     currencies_to_int: HashMap<String, usize>,
     int_to_currencies: Vec<String>,
     prices_map: Prices,
@@ -129,7 +129,7 @@ pub struct Evaluation {
 }
 
 impl Net {
-    pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
+    pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>, allowed_amounts: HashMap<String, U256>) -> Result<Self, AnnealingError> {
         if orders.is_empty() {
             return Err(AnnealingError::EmptyNet);
         }
@@ -166,7 +166,7 @@ impl Net {
         net.int_to_currencies.resize(net.n, String::new());
         net.prices = vec![U256::from(1); net.n];
         net.init = vec![U256::from(0); net.n];
-        net.target = vec![U256::from(0); net.n];
+        net.target_required = vec![U256::from(0); net.n];
         net.edges = vec![Vec::new(); net.n];
         for (i, address) in tokens.into_iter().enumerate() {
             net.currencies_to_int.insert(address.clone(), i);
@@ -268,11 +268,11 @@ impl Net {
                 continue;
             }
 
-            if self.target2[i] > U256::from(0) {
-                if cur_resources[i] < self.target2[i] {
+            if self.target_required[i] > U256::from(0) {
+                if cur_resources[i] < self.target_required[i] {
                     continue;
                 }
-                cur_resources[i] -= self.target2[i];
+                cur_resources[i] -= self.target_required[i];
             }
 
             for edge in &self.edges[i] {
@@ -305,8 +305,8 @@ impl Net {
                 });
             }
 
-            if self.target2[i] > U256::from(0) {
-                cur_resources[i] += self.target2[i];
+            if self.target_required[i] > U256::from(0) {
+                cur_resources[i] += self.target_required[i];
             }
         }
 
@@ -314,15 +314,15 @@ impl Net {
         let mut ans = 0.0;
         self.final_prices_map.clear();
         for i in 0..self.n {
-            if self.target[i] != U256::from(0) {
-                if cur_resources[i] >= self.target[i] {
+            if self.target_required[i] != U256::from(0) {
+                if cur_resources[i] >= self.target_required[i] {
                     self.final_prices_map.insert(
                         self.int_to_currencies[i].clone(),
-                        self.prices[i] * self.target[i] / cur_resources[i]
+                        self.prices[i] * self.target_required[i] / cur_resources[i]
                     );
-                    ans += ((cur_resources[i] - self.target2[i]) * self.save_prices[i]).to_f64_lossy();
+                    ans += ((cur_resources[i] - self.target_default[i]) * self.save_prices[i]).to_f64_lossy();
                 } else {
-                    ans -= ((self.target[i] - cur_resources[i]) * self.save_prices[i] * U256::from(10000)).to_f64_lossy();
+                    ans -= ((self.target_required[i] - cur_resources[i]) * self.save_prices[i] * U256::from(10000)).to_f64_lossy();
                 }
             }
             if self.init[i] != U256::from(0) {
@@ -402,8 +402,8 @@ impl Net {
     fn reset_topsort(&mut self, t: f64) {
         println!("Resetting topsort");
         self.edges = self.save_edges.clone();
-        self.target = vec![U256::from(0); self.n];
-        self.target2 = vec![U256::from(0); self.n];
+        self.target_required = vec![U256::from(0); self.n];
+        self.target_default = vec![U256::from(0); self.n];
         self.init = vec![U256::from(0); self.n];
 
         self.choose_orders(t);
@@ -497,16 +497,16 @@ impl Net {
             }
         }
         
-        // Initialize target2, update buy amounts, and set init/target values
-        self.target2 = vec![U256::from(0); self.n];
+        // Initialize target_default, update buy amounts, and set init/target values
+        self.target_default = vec![U256::from(0); self.n];
         for order in &mut self.orders {
             let buy_idx = self.currencies_to_int[&order.buy_token];
             let sell_idx = self.currencies_to_int[&order.sell_token];
             
-            self.target2[buy_idx] += order.buy_amount;
+            self.target_default[buy_idx] += order.buy_amount;
             order.buy_amount = order.sell_amount * self.prices[sell_idx] / self.prices[buy_idx] + U256::one();
             self.init[sell_idx] += order.sell_amount;
-            self.target[buy_idx] += order.buy_amount;
+            self.target_required[buy_idx] += order.buy_amount;
         }
     }
 
@@ -539,7 +539,7 @@ impl Net {
             self.topsort.push(cur_v);
 
             for edge in &self.edges[cur_v] {
-                if dist[edge.target] > dist[cur_v] + 1. && self.target[edge.target] == U256::from(0) {
+                if dist[edge.target] > dist[cur_v] + 1. && self.target_required[edge.target] == U256::from(0) {
                     dist[edge.target] = dist[cur_v] + 1.;
                     stack.push_back(edge.target);
                 }
@@ -548,7 +548,7 @@ impl Net {
 
         // Second pass: process target tokens
         for i in 0..self.n {
-            if self.target[i] > U256::from(0) {
+            if self.target_required[i] > U256::from(0) {
                 stack.push_back(i);
                 dist[i] = 0.;
             }
@@ -556,7 +556,7 @@ impl Net {
 
         while !stack.is_empty() {
             let cur_v = stack.pop_front().unwrap();
-            if self.target[cur_v] > U256::from(0) {
+            if self.target_required[cur_v] > U256::from(0) {
                 num[cur_v] = self.topsort.len();
                 self.topsort.push(cur_v);
             }
