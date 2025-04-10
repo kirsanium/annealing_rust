@@ -57,7 +57,32 @@ pub struct AnnealingArgs {
 pub struct Annealing;
 impl Annealing {
     pub fn run(time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
-        let mut net = Net::new(args.prices, args.pools, args.orders)?;
+        let mut allowed_amounts = HashMap::new();
+        let base_allowed_amounts = args.orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
+        for order in &args.orders {
+            let mut net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone())?;
+            let result = net.run_simulation(10);
+            if let Ok(eval) = result {
+                if eval.metric > 0. {
+                    let out_amount = eval.interactions.iter().find(|i| i.out_token_id == order.buy_token).unwrap().amount_out;
+                    allowed_amounts.insert(order.id.clone(), out_amount);
+                } else {
+                    allowed_amounts.insert(order.id.clone(), order.buy_amount);
+                }
+            } else {
+                allowed_amounts.insert(order.id.clone(), order.buy_amount);
+            }
+        }
+
+        let profits = args.orders.iter().map(|o| {
+            (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
+        }).collect::<HashMap<_, _>>();
+
+        allowed_amounts.iter_mut().for_each(|(id, amount)| {
+            *amount = *amount - profits[id].checked_div(10.into()).unwrap();
+        });
+
+        let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts)?;
         net.run_simulation(time_ms)
     }
 }
@@ -82,6 +107,7 @@ pub struct Net {
     save_orders: Vec<Order>,
     evals_called: usize,
     gas_price: U256,
+    allowed_amounts: HashMap<String, U256>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +130,11 @@ pub struct Evaluation {
 
 impl Net {
     pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>) -> Result<Self, AnnealingError> {
+        if orders.is_empty() {
+            return Err(AnnealingError::EmptyNet);
+        }
         let mut net = Net::default();
+        net.allowed_amounts = allowed_amounts;
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
         }
@@ -238,11 +268,11 @@ impl Net {
                 continue;
             }
 
-            if self.target[i] > U256::from(0) {
-                if cur_resources[i] < self.target[i] {
+            if self.target2[i] > U256::from(0) {
+                if cur_resources[i] < self.target2[i] {
                     continue;
                 }
-                cur_resources[i] -= self.target[i];
+                cur_resources[i] -= self.target2[i];
             }
 
             for edge in &self.edges[i] {
@@ -275,7 +305,9 @@ impl Net {
                 });
             }
 
-            cur_resources[i] = if self.target[i] > U256::from(0) { self.target[i] } else { U256::from(0) };
+            if self.target2[i] > U256::from(0) {
+                cur_resources[i] += self.target2[i];
+            }
         }
 
         // Calculate metric
@@ -288,9 +320,9 @@ impl Net {
                         self.int_to_currencies[i].clone(),
                         self.prices[i] * self.target[i] / cur_resources[i]
                     );
-                    ans += ((cur_resources[i] - self.target2[i]) * self.prices[i]).to_f64_lossy();
+                    ans += ((cur_resources[i] - self.target2[i]) * self.save_prices[i]).to_f64_lossy();
                 } else {
-                    ans -= ((self.target[i] - cur_resources[i]) * self.prices[i] * U256::from(10000)).to_f64_lossy();
+                    ans -= ((self.target[i] - cur_resources[i]) * self.save_prices[i] * U256::from(10000)).to_f64_lossy();
                 }
             }
             if self.init[i] != U256::from(0) {
@@ -433,9 +465,12 @@ impl Net {
                 for order in &self.orders {
                     let sell_idx = self.currencies_to_int[&order.sell_token];
                     let buy_idx = self.currencies_to_int[&order.buy_token];
+
+                    let sell_amount = order.sell_amount;
+                    let buy_amount = self.allowed_amounts[&order.id];
                     
                     if self.prices[sell_idx] != U256::from(0) {
-                        let limit_price = self.prices[sell_idx] * order.sell_amount / order.buy_amount + U256::one();
+                        let limit_price = self.prices[sell_idx] * sell_amount / buy_amount;
                         if self.prices[buy_idx] == U256::from(0) || self.prices[buy_idx] > limit_price {
                             self.prices[buy_idx] = limit_price;
                             flag2 = true;
@@ -443,7 +478,7 @@ impl Net {
                     }
                     
                     if self.prices[buy_idx] != U256::from(0) {
-                        let limit_price = self.prices[buy_idx] * order.buy_amount / order.sell_amount + U256::one();
+                        let limit_price = self.prices[buy_idx] * buy_amount / sell_amount + U256::one();
                         if self.prices[sell_idx] == U256::from(0) || self.prices[sell_idx] < limit_price {
                             self.prices[sell_idx] = limit_price;
                             flag2 = true;
