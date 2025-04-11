@@ -48,6 +48,7 @@ mod tycho_maths {
 
     type TychoFee = tycho_simulation::evm::protocol::uniswap_v3::enums::FeeAmount;
     pub(crate) type TychoUniswapV3State = tycho_simulation::evm::protocol::uniswap_v3::state::UniswapV3State;
+    pub(crate) type TychoUniswapV4State = tycho_simulation::evm::protocol::uniswap_v4::state::UniswapV4State;
 
     lazy_static! {
         static ref LOWEST_FEE: Fee = Fee(conv::decimal_to_rational(&"0.0001".parse().unwrap()).unwrap());

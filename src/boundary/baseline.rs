@@ -3,7 +3,7 @@ use ethcontract::{H160, U256};
 use crate::model::TokenPair;
 use derive_more::Display;
 use crate::baseline_solver::{BaselineSolvable, BaselineSolverError};
-
+use crate::boundary::liquidity::tycho::TychoPoolCallError;
 #[derive(Debug, Clone)]
 pub struct OnchainLiquidity {
     pub id: String,
@@ -15,6 +15,7 @@ pub struct OnchainLiquidity {
 pub enum LiquiditySource {
     ConstantProduct(boundary::liquidity::constant_product::Pool),
     Concentrated(boundary::liquidity::concentrated::ConcentratedPool),
+    Tycho(boundary::liquidity::tycho::TychoPool),
 }
 
 impl OnchainLiquidity {
@@ -22,6 +23,7 @@ impl OnchainLiquidity {
         Ok(match &self.source {
             LiquiditySource::ConstantProduct(pool) => pool.get_amount_out(out_token, input)?,
             LiquiditySource::Concentrated(pool) => pool.get_amount_out(out_token, input)?,
+            LiquiditySource::Tycho(pool) => pool.get_amount_out(out_token, input)?,
         })
     }
 
@@ -29,6 +31,7 @@ impl OnchainLiquidity {
         Ok(match &self.source {
             LiquiditySource::ConstantProduct(pool) => pool.get_amount_in(in_token, output)?,
             LiquiditySource::Concentrated(pool) => pool.get_amount_in(in_token, output)?,
+            LiquiditySource::Tycho(pool) => pool.get_amount_in(in_token, output)?,
         })
     }
 
@@ -36,6 +39,7 @@ impl OnchainLiquidity {
         Ok(match &self.source {
             LiquiditySource::ConstantProduct(pool) => pool.get_approx_amount_out(out_token, input)?,
             LiquiditySource::Concentrated(pool) => pool.get_approx_amount_out(out_token, input)?,
+            LiquiditySource::Tycho(pool) => pool.get_approx_amount_out(out_token, input)?,
         })
     }
 
@@ -43,6 +47,7 @@ impl OnchainLiquidity {
         Ok(match &self.source {
             LiquiditySource::ConstantProduct(pool) => pool.get_approx_amount_in(in_token, output)?,
             LiquiditySource::Concentrated(pool) => pool.get_approx_amount_in(in_token, output)?,
+            LiquiditySource::Tycho(pool) => pool.get_approx_amount_in(in_token, output)?,
         })
     }
 
@@ -50,6 +55,13 @@ impl OnchainLiquidity {
         match &self.source {
             LiquiditySource::ConstantProduct(pool) => pool.gas_cost(),
             LiquiditySource::Concentrated(pool) => pool.gas_cost(),
+            LiquiditySource::Tycho(_) => Default::default(),
         }
+    }
+}
+
+impl From<TychoPoolCallError> for BaselineSolverError {
+    fn from(error: TychoPoolCallError) -> Self {
+        BaselineSolverError::AmountCalculation(error.to_string())
     }
 }

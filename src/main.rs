@@ -1,6 +1,6 @@
 use bigdecimal::BigDecimal;
 use annealing_rust::model::TokenPair;
-use annealing_rust::domain::eth::{H160, U256, H256, self};
+use annealing_rust::domain::eth::{H160, U256, self};
 use annealing_rust::{
     boundary::{
         self,
@@ -18,6 +18,11 @@ use annealing_rust::util::serialize::serialization::HexOrDecimalU256;
 use annealing_rust::annealing::algorithm::*;
 use serde::Serialize;
 use serde_with::serde_as;
+use tycho_simulation::evm::protocol::uniswap_v4::state::{UniswapV4State, UniswapV4Fees};
+use tycho_simulation::evm::protocol::utils::uniswap::tick_list::TickInfo;
+use tycho_simulation::models::Token;
+use tycho_simulation::protocol::models::ProtocolComponent;
+use alloy::primitives::U256 as AlloyU256;
 use std::fs::File;
 use std::error::Error;
 use std::fs;
@@ -26,10 +31,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use annealing_rust::cli::Args;
 
+const GWEI: u128 = 1_000_000_000;
+
 fn main() {
     println!("START");
     let args = Args::parse();
-    run(args.test_dir.to_str().unwrap(), args.time_limit, args.verbose).unwrap();
+    if args.ebbo {
+        run_ebbo_tests(args.test_dir.to_str().unwrap(), args.time_limit).unwrap();
+    } else {
+        run(args.test_dir.to_str().unwrap(), args.time_limit, args.verbose).unwrap();
+    }
 }
 
 #[serde_as]
@@ -96,12 +107,6 @@ fn parse_prices(filename: &str) -> Result<HashMap<String, U256>, Box<dyn Error>>
     Ok(prices)
 }
 
-fn parse_currencies(filename: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let file = File::open(filename)?;
-    let currency_addresses: Vec<String> = serde_json::from_reader(file)?;
-    Ok(currency_addresses)
-}
-
 fn parse_orders(filename: &str) -> Result<Vec<Order>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let orders: Vec<serde_json::Value> = serde_json::from_reader(file)?;
@@ -117,7 +122,7 @@ fn parse_orders(filename: &str) -> Result<Vec<Order>, Box<dyn Error>> {
     Ok(orders)
 }
 
-fn parse_pools(filename: &str, currencies: &[String]) -> Result<Vec<Pool>, Box<dyn Error>> {
+fn parse_pools(filename: &str) -> Result<Vec<Pool>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let json: serde_json::Value = serde_json::from_reader(file)?;
     let mut used_addresses = HashMap::new();
@@ -181,6 +186,148 @@ fn parse_pools(filename: &str, currencies: &[String]) -> Result<Vec<Pool>, Box<d
 
     Ok(pools)
 }
+
+fn parse_ebbo_liquidities(filename: &str) -> Result<Vec<Pool>, Box<dyn Error>> {
+    let file = File::open(filename)?;
+    let json: serde_json::Value = serde_json::from_reader(file)?;
+
+    let mut pools = Vec::new();
+    for pool in json.as_array().unwrap() {
+        let pool_type = pool["type_pool"].as_str().unwrap();
+        let pool = match pool_type {
+            "uni_v3" => parse_uniswap_v3_pool_ebbo(pool),
+            "uni_v4" => parse_uniswap_v4_pool_ebbo(pool),
+            _ => {
+                println!("Unknown pool type: {}", pool_type);
+                continue;
+            },
+        };
+        match pool {
+            Ok(pool) => pools.push(pool),
+            Err(e) => {
+                println!("Error parsing pool: {:?}", e);
+                continue;
+            },
+        };
+    }
+
+    Ok(pools)
+}
+
+fn parse_uniswap_v3_pool_ebbo(pool: &serde_json::Value) -> Result<Pool, Box<dyn Error>> {
+    let address = pool["address"].as_str().unwrap();
+    let tokens = pool["token_pair"].as_str().unwrap();
+    let tokens: Vec<&str> = tokens[1..tokens.len()-1].split(",").map(|s| s.trim()).collect::<Vec<&str>>();
+
+    let liquidity = u128::from_str(pool["liquidity"].as_str().unwrap())?;
+    let sqrt_price = U256::from_str_radix(pool["sqrt_price"].as_str().unwrap(), 10).unwrap();
+    let tick = i32::from_str(pool["tick"].as_str().unwrap())?;
+    let liquidity_net = pool["ticks"].as_array().unwrap().iter().map(|tick| {
+        let index = tick["index"].as_i64().unwrap();
+        let liquidity = i128::from_str(tick["net_liquidity"].as_str().unwrap()).unwrap();
+        (index as i32, liquidity)
+    }).collect::<HashMap<i32, i128>>();
+    let fee = eth::Rational::new_raw(
+        pool["fee"]["numer"].as_u64().unwrap().into(),
+        pool["fee"]["denom"].as_u64().unwrap().into()
+    );
+
+    uniswap_v3_pool(
+        address, 
+        tokens[0], 
+        tokens[1], 
+        liquidity, 
+        sqrt_price, 
+        tick, 
+        &liquidity_net,
+        fee
+    )
+}
+
+fn parse_uniswap_v4_pool_ebbo(pool: &serde_json::Value) -> Result<Pool, Box<dyn Error>> {
+    let address = pool["address"].as_str().unwrap();
+    let tokens = pool["token_pair"].as_str().unwrap();
+    let tokens = tokens[1..tokens.len()-1].split(",").map(|s| s.trim()).collect::<Vec<&str>>();
+    let liquidity = u128::from_str(pool["other_params"]["liquidity"].as_str().unwrap())?;
+    let sqrt_price = string_to_alloy_u256(pool["other_params"]["sqrt_price"].as_str().unwrap());
+    let tick = pool["other_params"]["tick"].as_i64().unwrap() as i32;
+    let tick_spacing = pool["other_params"]["tick_spacing"].as_i64().unwrap() as i32;
+    let fees = UniswapV4Fees::new(
+        pool["other_params"]["fees"]["zero_for_one"].as_u64().unwrap() as u32,
+        pool["other_params"]["fees"]["one_for_zero"].as_u64().unwrap() as u32,
+        pool["other_params"]["fees"]["lp_fee"].as_u64().unwrap() as u32,
+    );
+    let ticks = pool["ticks"].as_array().unwrap().iter().map(|tick| {
+        let index = tick["index"].as_i64().unwrap() as i32;
+        let liquidity = tick["net_liquidity"].as_str().unwrap().parse::<i128>().unwrap();
+        TickInfo::new(index, liquidity)
+    }).collect();
+
+    uniswap_v4_pool(
+        address,
+        tokens,
+        liquidity,
+        sqrt_price,
+        tick,
+        tick_spacing,
+        ticks,
+        fees
+    )
+}
+
+fn uniswap_v4_pool(
+    address: &str,
+    tokens: Vec<&str>,
+    liquidity: u128,
+    sqrt_price: AlloyU256,
+    tick: i32,
+    tick_spacing: i32,
+    ticks: Vec<TickInfo>,
+    fees: UniswapV4Fees,
+) -> Result<Pool, Box<dyn Error>> {
+    let pair = TokenPair::new(
+        parse_h160(tokens[0]),
+        parse_h160(tokens[1])
+    ).unwrap();
+
+    Ok(Arc::new(OnchainLiquidity {
+        id: address.to_string(),
+        token_pair: pair,
+        source: LiquiditySource::Tycho(boundary::liquidity::tycho::TychoPool::new(
+            ProtocolComponent::new(
+                hex::decode(&address[2..]).unwrap().into(),
+                "uniswap_v4".to_string(),
+                "uniswap_v4_pool".to_string(),
+                Default::default(),
+                tokens.into_iter().map(|token| Token::new(
+                    token,
+                    Default::default(),
+                    Default::default(),
+                    Default::default()
+                )).collect(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default()
+            ),
+            Arc::new(UniswapV4State::new(
+                liquidity,
+                sqrt_price,
+                fees,
+                tick,
+                tick_spacing,
+                ticks,
+            ))
+        )),
+    }))
+}
+
+fn string_to_alloy_u256(value: &str) -> AlloyU256 {
+    let mut array = [0u8; 32];
+    U256::from_str_radix(value, 10).unwrap().to_big_endian(&mut array);
+    AlloyU256::from_be_bytes(array)
+}
+
 
 fn uniswap_v3_pool(
     address: &str,
@@ -251,34 +398,26 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
     let mut goods = Vec::new();
 
     let prices = parse_prices(&format!("{}/normalized_prices.json", root_dir)).unwrap();
-    let mut total_evals_run = 0;
     // Process files in chunks of 3
     for file_chunk in filenames.chunks(3) {
         let num = extract_number_from_filename(&file_chunk[0]);
         
         // Parse input files
-        let currencies = parse_currencies(&format!("{}/inputs/auction_{}_tokens.json", root_dir, num)).unwrap();
         let orders = parse_orders(&format!("{}/inputs/auction_{}_orders.json", root_dir, num)).unwrap();
-        let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num), &currencies).unwrap();
-        let base_allowed_amounts = orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
-        const GWEI: u128 = 1_000_000_000;
-        let net = Net::new(prices.clone(), pools, orders, base_allowed_amounts, U256::from(3*GWEI));
-
-        if let Err(e) = net {
-            println!("Error: {:?}", e);
-            continue;
-        }
-
-        let mut net = net.unwrap();
-
-        // Run simulation
-        let best_eval = net.run_simulation(time_limit).unwrap();
+        let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num)).unwrap();
+        
+        let eval = Annealing::run(time_limit, AnnealingArgs {
+            prices: prices.clone(),
+            pools: pools.clone(),
+            orders: orders.clone(),
+            gas_price: U256::from(3*GWEI),
+        }).unwrap();
 
         // Update statistics
-        if best_eval.metric >= 0.0 {
+        if eval.metric >= 0.0 {
             success += 1;
-            sum_good += best_eval.metric;
-            goods.push(best_eval.metric);
+            sum_good += eval.metric;
+            goods.push(eval.metric);
         } else {
             fail += 1;
         }
@@ -286,12 +425,12 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         if verbose {
             println!("Processing auction {}: success={}, improvement={}", 
                 num, 
-                best_eval.metric >= 0.0, 
-                best_eval.metric * 2750.26
+                eval.metric >= 0.0, 
+                eval.metric * 2750.26
             );
         }
 
-        create_path(&root_dir, &num, &best_eval)?;
+        create_path(&root_dir, &num, &eval)?;
     }
 
     // Print final statistics
@@ -311,7 +450,21 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         println!();
     }
 
-    println!("Total evaluations run: {}", total_evals_run);
+    Ok(())
+}
+
+fn run_ebbo_tests(root_dir: &str, time_limit: u64) -> Result<(), Box<dyn Error>> {
+    let ebbo_pools = parse_ebbo_liquidities(&format!("{}/ebbo/ebbo_pools.json", root_dir)).unwrap();
+    let ebbo_orders = parse_orders(&format!("{}/ebbo/ebbo_orders.json", root_dir)).unwrap();
+    let prices = parse_prices(&format!("{}/ebbo/ebbo_prices.json", root_dir)).unwrap();
+    let eval = Annealing::run(time_limit, AnnealingArgs {
+        prices: prices.clone(),
+        pools: ebbo_pools.clone(),
+        orders: ebbo_orders.clone(),
+        gas_price: U256::from(3*GWEI),
+    }).unwrap();
+
+    create_path(&root_dir, "ebbo", &eval)?;
 
     Ok(())
 }
@@ -322,8 +475,4 @@ fn parse_u256(s: &str) -> U256 {
 
 fn parse_h160(s: &str) -> H160 {
     H160::from_str(s).unwrap()
-}
-
-fn parse_h256(s: &str) -> H256 {
-    H256::from_str(s).unwrap()
 }

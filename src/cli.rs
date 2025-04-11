@@ -16,6 +16,10 @@ pub struct Args {
     /// Whether to run in verbose mode
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
+
+    /// Whether to run in ebbo mode
+    #[arg(long, default_value_t = false)]
+    pub ebbo: bool,
 }
 
 impl Args {
