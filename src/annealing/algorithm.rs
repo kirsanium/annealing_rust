@@ -331,11 +331,13 @@ impl Net {
         }
 
         ans -= self.fine_for_pool_usages(num_transactions);
+        
+        let order_ids = self.orders.iter().map(|o| o.id.clone()).collect::<HashSet<_>>();
 
         Ok(Evaluation {
             interactions: outputs,
             metric: ans,
-            orders: self.orders.clone(),
+            orders: self.save_orders.iter().filter(|o| order_ids.contains(&o.id)).cloned().collect(),
             prices: self.final_prices_map.clone(),
         })
     }
