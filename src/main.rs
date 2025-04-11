@@ -261,7 +261,8 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         let orders = parse_orders(&format!("{}/inputs/auction_{}_orders.json", root_dir, num)).unwrap();
         let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num), &currencies).unwrap();
         let base_allowed_amounts = orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
-        let net = Net::new(prices.clone(), pools, orders, base_allowed_amounts);
+        const GWEI: u128 = 1_000_000_000;
+        let net = Net::new(prices.clone(), pools, orders, base_allowed_amounts, U256::from(3*GWEI));
 
         if let Err(e) = net {
             println!("Error: {:?}", e);

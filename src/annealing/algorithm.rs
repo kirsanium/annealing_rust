@@ -52,6 +52,7 @@ pub struct AnnealingArgs {
     pub prices: Prices,
     pub pools: Vec<Pool>,
     pub orders: Vec<Order>,
+    pub gas_price: U256,
 }
 
 pub struct Annealing;
@@ -60,7 +61,7 @@ impl Annealing {
         let mut allowed_amounts = HashMap::new();
         let base_allowed_amounts = args.orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
         for order in &args.orders {
-            let mut net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone())?;
+            let mut net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price)?;
             let result = net.run_simulation(10);
             if let Ok(eval) = result {
                 if eval.metric > 0. {
@@ -82,7 +83,7 @@ impl Annealing {
             *amount = *amount - profits[id].checked_div(10.into()).unwrap();
         });
 
-        let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts)?;
+        let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts, args.gas_price)?;
         net.run_simulation(time_ms)
     }
 }
@@ -129,17 +130,16 @@ pub struct Evaluation {
 }
 
 impl Net {
-    pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>, allowed_amounts: HashMap<String, U256>) -> Result<Self, AnnealingError> {
+    pub fn new(prices: Prices, pools: Vec<Pool>, orders: Vec<Order>, allowed_amounts: HashMap<String, U256>, gas_price: U256) -> Result<Self, AnnealingError> {
         if orders.is_empty() {
             return Err(AnnealingError::EmptyNet);
         }
         let mut net = Net::default();
+        net.gas_price = gas_price;
         net.allowed_amounts = allowed_amounts;
         for (token, price) in &prices {
             net.set_price(token.clone(), *price);
         }
-
-        net.gas_price = U256::from(8361242131u64);
 
         let pools = pools.into_iter()
             .sorted_by_key(|p| p.get_id())
@@ -305,9 +305,7 @@ impl Net {
                 });
             }
 
-            if self.target_required[i] > U256::from(0) {
-                cur_resources[i] += self.target_required[i];
-            }
+            cur_resources[i] = if self.target_required[i] > U256::from(0) { self.target_required[i] } else { U256::from(0) };
         }
 
         // Calculate metric
