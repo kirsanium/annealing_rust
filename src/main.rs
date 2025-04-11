@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use annealing_rust::cli::Args;
+use std::path::{Path, PathBuf};
 
 const GWEI: u128 = 1_000_000_000;
 
@@ -55,7 +56,7 @@ struct PathOutput {
 }
 
 fn get_filenames(directory_path: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let path = &format!("{}/inputs/", directory_path);
+    let path = Path::new(directory_path).join("inputs");
     let mut filenames = Vec::new();
     for entry in fs::read_dir(path).unwrap() {
         let entry = entry.unwrap();
@@ -81,7 +82,7 @@ fn create_path(
         prices: eval.prices.clone(),
     };
 
-    let path = format!("{}/paths/path{}.json", base_dir, num);
+    let path = Path::new(base_dir).join("paths").join(format!("path{}.json", num));
     let file = File::create(path)?;
     serde_json::to_writer_pretty(file, &path_output)?;
     println!("JSON successfully written to path{}.json", num);
@@ -389,7 +390,7 @@ fn uniswap_v2_pool(
 
 fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Error>> {
     // Create paths directory if it doesn't exist
-    let paths_dir = format!("{}/paths", root_dir);
+    let paths_dir = Path::new(root_dir).join("paths");
     fs::create_dir_all(&paths_dir)?;
     let filenames = get_filenames(root_dir).unwrap();
     let mut success = 0;
@@ -397,14 +398,14 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
     let mut sum_good = 0.0;
     let mut goods = Vec::new();
 
-    let prices = parse_prices(&format!("{}/normalized_prices.json", root_dir)).unwrap();
+    let prices = parse_prices(&Path::new(root_dir).join("normalized_prices.json").to_string_lossy())?;
     // Process files in chunks of 3
     for file_chunk in filenames.chunks(3) {
         let num = extract_number_from_filename(&file_chunk[0]);
         
         // Parse input files
-        let orders = parse_orders(&format!("{}/inputs/auction_{}_orders.json", root_dir, num)).unwrap();
-        let pools = parse_pools(&format!("{}/inputs/auction_{}_liquidity.json", root_dir, num)).unwrap();
+        let orders = parse_orders(&Path::new(root_dir).join("inputs").join(format!("auction_{}_orders.json", num)).to_string_lossy())?;
+        let pools = parse_pools(&Path::new(root_dir).join("inputs").join(format!("auction_{}_liquidity.json", num)).to_string_lossy())?;
         
         let eval = Annealing::run(time_limit, AnnealingArgs {
             prices: prices.clone(),
@@ -430,7 +431,7 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
             );
         }
 
-        create_path(&root_dir, &num, &eval)?;
+        create_path(root_dir, &num, &eval)?;
     }
 
     // Print final statistics
@@ -454,9 +455,9 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
 }
 
 fn run_ebbo_tests(root_dir: &str, time_limit: u64) -> Result<(), Box<dyn Error>> {
-    let ebbo_pools = parse_ebbo_liquidities(&format!("{}/ebbo/ebbo_pools.json", root_dir)).unwrap();
-    let ebbo_orders = parse_orders(&format!("{}/ebbo/ebbo_orders.json", root_dir)).unwrap();
-    let prices = parse_prices(&format!("{}/ebbo/ebbo_prices.json", root_dir)).unwrap();
+    let ebbo_pools = parse_ebbo_liquidities(&Path::new(root_dir).join("ebbo").join("ebbo_pools.json").to_string_lossy())?;
+    let ebbo_orders = parse_orders(&Path::new(root_dir).join("ebbo").join("ebbo_orders.json").to_string_lossy())?;
+    let prices = parse_prices(&Path::new(root_dir).join("ebbo").join("ebbo_prices.json").to_string_lossy())?;
     let eval = Annealing::run(time_limit, AnnealingArgs {
         prices: prices.clone(),
         pools: ebbo_pools.clone(),
@@ -464,7 +465,7 @@ fn run_ebbo_tests(root_dir: &str, time_limit: u64) -> Result<(), Box<dyn Error>>
         gas_price: U256::from(3*GWEI),
     }).unwrap();
 
-    create_path(&root_dir, "ebbo", &eval)?;
+    create_path(root_dir, "ebbo", &eval)?;
 
     Ok(())
 }
