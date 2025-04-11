@@ -23,7 +23,7 @@ use tycho_simulation::evm::protocol::utils::uniswap::tick_list::TickInfo;
 use tycho_simulation::models::Token;
 use tycho_simulation::protocol::models::ProtocolComponent;
 use alloy::primitives::U256 as AlloyU256;
-use std::fs::File;
+use std::fs::{File, create_dir};
 use std::error::Error;
 use std::fs;
 use std::collections::HashMap;
@@ -82,7 +82,9 @@ fn create_path(
         prices: eval.prices.clone(),
     };
 
-    let path = Path::new(base_dir).join("paths").join(format!("path{}.json", num));
+    let path = Path::new(base_dir).join("paths");
+    let _ = create_dir(path.clone());
+    let path = path.join(format!("path{}.json", num));
     let file = File::create(path)?;
     serde_json::to_writer_pretty(file, &path_output)?;
     println!("JSON successfully written to path{}.json", num);

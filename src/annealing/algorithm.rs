@@ -255,7 +255,6 @@ impl Net {
     }
 
     fn eval(&mut self) -> Result<Evaluation, AnnealingError> {
-        println!("Evaluating");
         self.evals_called += 1;
         let mut cur_resources = self.init.clone();
         let mut num_transactions = 0;
