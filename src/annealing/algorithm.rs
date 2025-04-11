@@ -209,8 +209,8 @@ impl Net {
 
             cur_eval = self.eval()?.metric;
 
-            let mut temp = 2e3;
-            while temp >= 0.00001 {
+            let mut temp = 1.;
+            while temp >= 0.0000001 {
                 // Choose random edge to modify
                 let change_edge = rng.random_range(0..num_edges);
                 let (cur_v, cur_index) = self.find_edge_indices(change_edge);
@@ -236,7 +236,7 @@ impl Net {
 
                 let delta = self.eval()?.metric - cur_eval;
                 let rand_value: f64 = rng.random::<f64>();
-                if delta > 0.0 || rand_value < (delta / temp).exp() {
+                if delta > 0.0 || rand_value < (delta /1e36 / temp).exp() {
                     cur_eval += delta;
                 } else {
                     self.edges[cur_v][cur_index] = cur_edge;
@@ -247,7 +247,7 @@ impl Net {
                     best_n = self.clone();
                 }
 
-                temp *= 0.95;
+                temp *= 0.9;
             }
         }
         *self = best_n;
