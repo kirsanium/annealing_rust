@@ -65,7 +65,11 @@ impl Annealing {
             let result = net.run_simulation(10);
             if let Ok(eval) = result {
                 if eval.metric > 0. {
-                    let out_amount = eval.interactions.iter().find(|i| i.out_token_id == order.buy_token).unwrap().amount_out;
+                    let out_amount = eval.interactions
+                        .iter()
+                        .filter(|i| i.out_token_id == order.buy_token)
+                        .map(|i| i.amount_out)
+                        .fold(U256::from(0), |acc, i| acc + i);
                     allowed_amounts.insert(order.id.clone(), out_amount);
                 } else {
                     allowed_amounts.insert(order.id.clone(), order.buy_amount);
@@ -76,6 +80,7 @@ impl Annealing {
         }
 
         let profits = args.orders.iter().map(|o| {
+            println!("allowed_amounts: {}, buy_amount: {}", allowed_amounts[&o.id], o.buy_amount);
             (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
         }).collect::<HashMap<_, _>>();
 

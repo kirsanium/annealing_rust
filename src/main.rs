@@ -414,7 +414,15 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
             pools: pools.clone(),
             orders: orders.clone(),
             gas_price: U256::from(3*GWEI),
-        }).unwrap();
+        });
+
+        if let Err(e) = eval {
+            println!("Error: {:?}", e);
+            fail += 1;
+            continue;
+        }
+
+        let eval = eval.unwrap();
 
         // Update statistics
         if eval.metric >= 0.0 {
