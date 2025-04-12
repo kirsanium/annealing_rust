@@ -313,6 +313,9 @@ impl Net {
                     continue;
                 }
                 let amount_in = U256::from_f64_lossy(cur_resources[i].to_f64_lossy() * edge.rate / sum_rate);
+                if amount_in == U256::from(0) {
+                    continue;
+                }
                 let add = edge.pool.get_amount_out(
                     &self.int_to_currencies[i],
                     &self.int_to_currencies[edge.target],
