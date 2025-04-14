@@ -66,6 +66,7 @@ impl Annealing {
                 return Err(AnnealingError::StartFailed);
             }
             let result = net.unwrap().run_simulation(10);
+            let required_buy_amount = order.buy_amount + U256::exp10(32) / args.prices[&order.buy_token];
             if let Ok(eval) = result {
                 if eval.metric > 0. {
                     let out_amount = eval.interactions
@@ -75,10 +76,10 @@ impl Annealing {
                         .fold(U256::from(0), |acc, i| acc + i);
                     allowed_amounts.insert(order.id.clone(), out_amount);
                 } else {
-                    allowed_amounts.insert(order.id.clone(), order.buy_amount);
+                    allowed_amounts.insert(order.id.clone(), required_buy_amount);
                 }
             } else {
-                allowed_amounts.insert(order.id.clone(), order.buy_amount);
+                allowed_amounts.insert(order.id.clone(), required_buy_amount);
             }
         }
 
@@ -230,19 +231,20 @@ impl Net {
 
             cur_eval = self.eval()?.metric;
 
-            let mut temp = 1.;
+            let mut temp = 100.;
             let mut local_max = cur_eval;
-            let mut change_edge = 0;
+            let mut change_edge=0;
             let mut num_left = 0;
-            while temp >= 0.00001 {
+            let mut old_start_vertex = 0;
+            while temp >= 0.0000001 {
                 // Choose random edge to modify
-                if num_left == 0 {
-                    change_edge = rng.random_range(0..num_edges);
-                } else {
-                    num_left -= 1;
-                }
+                change_edge = rng.random_range(0..num_edges);
                 let (cur_v, cur_index) = self.find_edge_indices(change_edge);
-                
+                if num_left != 0 {
+                    if old_start_vertex != cur_v{
+                        continue;
+                    }
+                }
                 let cur_edge = self.edges[cur_v][cur_index].clone();
                 let edge_cur_rate = cur_edge.rate;
                 
@@ -250,6 +252,9 @@ impl Net {
                 let edge_new_rate;
                 let mut ok = false;
                 if edge_cur_rate == 0.0 {
+                    if rng.random_range(0..5) != 0 {
+                        continue;
+                    }
                     edge_new_rate = LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng);
                 } else {
                     if num_left > 0 {
@@ -276,7 +281,7 @@ impl Net {
 
                 let delta = self.eval()?.metric - cur_eval;
                 let rand_value: f64 = rng.random::<f64>();
-                if delta > 0.0 || rand_value < (delta / 1e36 / temp).exp() && num_left == 0 {
+                if delta > 0.0 || (rand_value < (delta / 1e36 / temp).exp() && num_left == 0) {
                     cur_eval += delta;
                 } else {
                     self.edges[cur_v][cur_index] = cur_edge;
@@ -295,7 +300,11 @@ impl Net {
                     best_eval = cur_eval;
                     best_n = self.clone();
                 }
-                temp *= 0.9;
+                temp *= 0.97;
+                old_start_vertex = cur_v;
+                if num_left > 0{
+                    num_left -= 1;
+                }
             }
         }
         println!("The value of count is: {}", count);
@@ -383,7 +392,7 @@ impl Net {
         }
 
         ans -= self.fine_for_pool_usages(num_transactions);
-        
+        ans -= self.fine_for_order_usages(self.orders.len());
         let order_ids = self.orders.iter().map(|o| o.id.clone()).collect::<HashSet<_>>();
 
         Ok(Evaluation {
@@ -398,7 +407,10 @@ impl Net {
         let fine_per_pool_usage = 100_000. * self.gas_price.to_f64_lossy();
         amount as f64 * 1e18 * fine_per_pool_usage
     }
-
+    fn fine_for_order_usages(&self, amount: usize) -> f64 {
+        let fine_per_pool_usage = 50_000. * self.gas_price.to_f64_lossy();
+        amount as f64 * 1e18 * fine_per_pool_usage
+    }
     fn find_edge_indices(&self, change_edge: usize) -> (usize, usize) {
         let x: Option<(usize, usize)> = None;
         
