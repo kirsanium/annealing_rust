@@ -20,6 +20,10 @@ pub struct Args {
     /// Whether to run in ebbo mode
     #[arg(long, default_value_t = false)]
     pub ebbo: bool,
+
+    /// Number of threads to use
+    #[arg(long, default_value_t = 1)]
+    pub threads: usize,
 }
 
 impl Args {

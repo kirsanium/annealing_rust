@@ -57,12 +57,15 @@ pub struct AnnealingArgs {
 
 pub struct Annealing;
 impl Annealing {
-    pub fn run(time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
+    pub fn run(threads: usize, time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
         let mut allowed_amounts = HashMap::new();
         let base_allowed_amounts = args.orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
         for order in &args.orders {
-            let mut net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price)?;
-            let result = net.run_simulation(10);
+            let net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price);
+            if net.is_err() {
+                return Err(AnnealingError::StartFailed);
+            }
+            let result = net.unwrap().run_simulation(10);
             if let Ok(eval) = result {
                 if eval.metric > 0. {
                     let out_amount = eval.interactions
@@ -80,7 +83,6 @@ impl Annealing {
         }
 
         let profits = args.orders.iter().map(|o| {
-            println!("allowed_amounts: {}, buy_amount: {}", allowed_amounts[&o.id], o.buy_amount);
             (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
         }).collect::<HashMap<_, _>>();
 
@@ -88,8 +90,20 @@ impl Annealing {
             *amount = *amount - profits[id].checked_div(100.into()).unwrap();
         });
 
-        let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts, args.gas_price)?;
-        net.run_simulation(time_ms)
+        let handles: Vec<_> = (0..threads).map(|_| {
+            let args = args.clone();
+            let allowed_amounts = allowed_amounts.clone();
+            std::thread::spawn(move || {
+                let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts, args.gas_price)?;
+                net.run_simulation(time_ms)
+            })
+        }).collect();
+
+        handles.into_iter()
+            .map(|h| h.join().unwrap())
+            .flatten()
+            .max_by(|a, b| a.metric.total_cmp(&b.metric))
+            .ok_or(AnnealingError::StartFailed)
     }
 }
 
@@ -122,6 +136,7 @@ pub enum AnnealingError {
     GetAmountOut(String),
     NoEdges,
     EmptyNet,
+    StartFailed,
 }
 
 #[derive(Debug, Clone)]

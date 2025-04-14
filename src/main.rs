@@ -38,9 +38,9 @@ fn main() {
     println!("START");
     let args = Args::parse();
     if args.ebbo {
-        run_ebbo_tests(args.test_dir.to_str().unwrap(), args.time_limit).unwrap();
+        run_ebbo_tests(args.test_dir.to_str().unwrap(), args.time_limit, args.threads).unwrap();
     } else {
-        run(args.test_dir.to_str().unwrap(), args.time_limit, args.verbose).unwrap();
+        run(args.test_dir.to_str().unwrap(), args.time_limit, args.threads, args.verbose).unwrap();
     }
 }
 
@@ -390,7 +390,7 @@ fn uniswap_v2_pool(
     }))
 }
 
-fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Error>> {
+fn run(root_dir: &str, time_limit: u64, threads: usize, verbose: bool) -> Result<(), Box<dyn Error>> {
     // Create paths directory if it doesn't exist
     let paths_dir = Path::new(root_dir).join("paths");
     fs::create_dir_all(&paths_dir)?;
@@ -409,7 +409,7 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
         let orders = parse_orders(&Path::new(root_dir).join("inputs").join(format!("auction_{}_orders.json", num)).to_string_lossy())?;
         let pools = parse_pools(&Path::new(root_dir).join("inputs").join(format!("auction_{}_liquidity.json", num)).to_string_lossy())?;
         
-        let eval = Annealing::run(time_limit, AnnealingArgs {
+        let eval = Annealing::run(threads, time_limit, AnnealingArgs {
             prices: prices.clone(),
             pools: pools.clone(),
             orders: orders.clone(),
@@ -464,11 +464,11 @@ fn run(root_dir: &str, time_limit: u64, verbose: bool) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn run_ebbo_tests(root_dir: &str, time_limit: u64) -> Result<(), Box<dyn Error>> {
+fn run_ebbo_tests(root_dir: &str, time_limit: u64, threads: usize) -> Result<(), Box<dyn Error>> {
     let ebbo_pools = parse_ebbo_liquidities(&Path::new(root_dir).join("ebbo").join("ebbo_pools.json").to_string_lossy())?;
     let ebbo_orders = parse_orders(&Path::new(root_dir).join("ebbo").join("ebbo_orders.json").to_string_lossy())?;
     let prices = parse_prices(&Path::new(root_dir).join("ebbo").join("ebbo_prices.json").to_string_lossy())?;
-    let eval = Annealing::run(time_limit, AnnealingArgs {
+    let eval = Annealing::run(threads, time_limit, AnnealingArgs {
         prices: prices.clone(),
         pools: ebbo_pools.clone(),
         orders: ebbo_orders.clone(),
