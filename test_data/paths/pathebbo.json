@@ -1,0 +1,70 @@
+{
+  "claimed_improvement": 5.705032539231099e35,
+  "success": true,
+  "outputs": [
+    {
+      "pool_id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+      "in_token_id": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "amount_in": "24309418210713079808",
+      "out_token_id": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "amount_out": "36303695979"
+    },
+    {
+      "pool_id": "0xe0554a476a092703abdb3ef35c80e0d76d32939f",
+      "in_token_id": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "amount_in": "4213544472268326912",
+      "out_token_id": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "amount_out": "6295454096"
+    },
+    {
+      "pool_id": "0x95dbb3c7546f22bce375900abfdd64a4e5bd73d6",
+      "in_token_id": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "amount_in": "42592001456",
+      "out_token_id": "0x1abaea1f7c830bd89acc67ec4af516284b1bc33c",
+      "amount_out": "38786128596"
+    },
+    {
+      "pool_id": "0x8aa4e11cbdf30eedc92100f4c8a31ff748e201d44712cc8c90d189edaa8e4e47",
+      "in_token_id": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "amount_in": "2004536218",
+      "out_token_id": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "amount_out": "2005742981"
+    },
+    {
+      "pool_id": "0x56534741cd8b152df6d48adf7ac51f75169a83b2",
+      "in_token_id": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "amount_in": "2005742981",
+      "out_token_id": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+      "amount_out": "2604015"
+    },
+    {
+      "pool_id": "0xe8f7c89c5efa061e340f2d2f206ec78fd8f7e124",
+      "in_token_id": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+      "amount_in": "2604015",
+      "out_token_id": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "amount_out": "2599068"
+    }
+  ],
+  "orders": [
+    {
+      "id": "0xe87c5764a8cced90c1daec0c39d68845aac061586d0f8e818842c07f061319f315ecfc5b05f1db628f2cb7954cf9384146f3a18067f3cbbe",
+      "buy_token": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "sell_token": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "sell_amount": "1997387600",
+      "buy_amount": "2411652"
+    },
+    {
+      "id": "0xfdc008a26a84cc0274d991e1aa689ccf067ee1fd839c920d9480a3890f2c7009ba3cb449bd2b4adddbc894d8697f5170800eadecffffffff",
+      "buy_token": "0x1abaea1f7c830bd89acc67ec4af516284b1bc33c",
+      "sell_token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "sell_amount": "28522962682981408768",
+      "buy_amount": "38138101673"
+    }
+  ],
+  "prices": {
+    "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf": "515573912893126427684790241278",
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "1000000000000000000",
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "670881876337104358207389696",
+    "0x1abaea1f7c830bd89acc67ec4af516284b1bc33c": "735390814092705392510366262"
+  }
+}

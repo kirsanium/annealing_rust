@@ -63,28 +63,34 @@ impl Annealing {
         for order in &args.orders {
             let mut net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price)?;
             let result = net.run_simulation(10);
+            let required_buy_amount = order.buy_amount + U256::exp10(32) / args.prices[&order.buy_token];
             if let Ok(eval) = result {
                 if eval.metric > 0. {
-                    let out_amount = eval.interactions.iter().find(|i| i.out_token_id == order.buy_token).unwrap().amount_out;
+                    let out_amount = eval.interactions
+                        .iter()
+                        .filter(|i| i.out_token_id == order.buy_token)
+                        .map(|i| i.amount_out)
+                        .fold(U256::from(0), |acc, i| acc + i);
                     allowed_amounts.insert(order.id.clone(), out_amount);
                 } else {
-                    allowed_amounts.insert(order.id.clone(), order.buy_amount);
+                    allowed_amounts.insert(order.id.clone(), required_buy_amount);
                 }
             } else {
-                allowed_amounts.insert(order.id.clone(), order.buy_amount);
+                allowed_amounts.insert(order.id.clone(), required_buy_amount);
             }
         }
 
         let profits = args.orders.iter().map(|o| {
+            println!("allowed_amounts: {}, buy_amount: {}", allowed_amounts[&o.id], o.buy_amount);
             (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
         }).collect::<HashMap<_, _>>();
 
         allowed_amounts.iter_mut().for_each(|(id, amount)| {
-            *amount = *amount - profits[id].checked_div(10.into()).unwrap();
+            *amount = *amount - profits[id].checked_div(100.into()).unwrap();
         });
 
         let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts, args.gas_price)?;
-        net.run_simulation(time_ms)
+        net.run_simulation(time_ms * 16)
     }
 }
 
@@ -193,8 +199,9 @@ impl Net {
         let mut best_eval = f64::MIN;
         let init_n = self.clone();
         let mut best_n = self.clone();
-
+        let mut count = 0;
         while start.elapsed() < Duration::from_millis(max_time_ms) {
+            count = count + 1;
             println!("Starting new iteration");
             *self = init_n.clone();
 
@@ -209,23 +216,46 @@ impl Net {
 
             cur_eval = self.eval()?.metric;
 
-            let mut temp = 2e3;
-            while temp >= 0.00001 {
+            let mut temp = 100.;
+            let mut local_max = cur_eval;
+            let mut change_edge = 0;
+            let mut num_left = 0;
+            let mut old_start_vertex = 0;
+            while temp >= 0.0000001 {
                 // Choose random edge to modify
-                let change_edge = rng.random_range(0..num_edges);
+                change_edge = rng.random_range(0..num_edges);
                 let (cur_v, cur_index) = self.find_edge_indices(change_edge);
-                
+                if num_left != 0 {
+                    if old_start_vertex != cur_v{
+                        continue;
+                    }
+                }
                 let cur_edge = self.edges[cur_v][cur_index].clone();
                 let edge_cur_rate = cur_edge.rate;
                 
                 // Modify edge rate
-                let edge_new_rate = if edge_cur_rate == 0.0 {
-                    LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng)
+                let edge_new_rate;
+                let mut ok = false;
+                if edge_cur_rate == 0.0 {
+                    if rng.random_range(0..5) != 0 {
+                        continue;
+                    }
+                    edge_new_rate = LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng);
                 } else {
-                    match rng.random_range(0..3) {
-                        0 => 0.0,
-                        1 => LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng),
-                        _ => edge_cur_rate * 2.0f64.powf(rng.random_range(-1.0..1.0))
+                    if num_left > 0 {
+                        edge_new_rate = edge_cur_rate * LogNormal::new(0.0, 1./1.5_f64.powf(20.-num_left as f64)).unwrap().sample(&mut rng);
+                        ok = true;
+                    } else {
+                        let val = rng.random_range(0..3);
+                        if val == 0 {
+                            edge_new_rate = 0.0;
+                        } else if val == 1 {
+                            edge_new_rate = LogNormal::new(0.0, 1.0).unwrap().sample(&mut rng);
+                            ok = true;
+                        } else {
+                            edge_new_rate = edge_cur_rate * LogNormal::new(0.0, 0.1).unwrap().sample(&mut rng);
+                            ok = true;
+                        }
                     }
                 };
 
@@ -236,20 +266,33 @@ impl Net {
 
                 let delta = self.eval()?.metric - cur_eval;
                 let rand_value: f64 = rng.random::<f64>();
-                if delta > 0.0 || rand_value < (delta / temp).exp() {
+                if delta > 0.0 || (rand_value < (delta / 1e36 / temp).exp() && num_left == 0) {
                     cur_eval += delta;
                 } else {
                     self.edges[cur_v][cur_index] = cur_edge;
+                }
+                if cur_eval > local_max{
+                    local_max = cur_eval;
+                    if ok {
+                        if temp < 0.001 {
+                            temp = 0.001;
+                        }
+                        num_left = 20;
+                    }
                 }
 
                 if cur_eval > best_eval {
                     best_eval = cur_eval;
                     best_n = self.clone();
                 }
-
-                temp *= 0.95;
+                temp *= 0.97;
+                old_start_vertex = cur_v;
+                if num_left > 0{
+                    num_left -= 1;
+                }
             }
         }
+        println!("The value of count is: {}", count);
         *self = best_n;
         self.eval()
     }
@@ -279,6 +322,9 @@ impl Net {
                     continue;
                 }
                 let amount_in = U256::from_f64_lossy(cur_resources[i].to_f64_lossy() * edge.rate / sum_rate);
+                if amount_in == U256::from(0) {
+                    continue;
+                }
                 let add = edge.pool.get_amount_out(
                     &self.int_to_currencies[i],
                     &self.int_to_currencies[edge.target],
@@ -331,7 +377,7 @@ impl Net {
         }
 
         ans -= self.fine_for_pool_usages(num_transactions);
-        
+        ans -= self.fine_for_order_usages(self.orders.len());
         let order_ids = self.orders.iter().map(|o| o.id.clone()).collect::<HashSet<_>>();
 
         Ok(Evaluation {
@@ -346,7 +392,10 @@ impl Net {
         let fine_per_pool_usage = 100_000. * self.gas_price.to_f64_lossy();
         amount as f64 * 1e18 * fine_per_pool_usage
     }
-
+    fn fine_for_order_usages(&self, amount: usize) -> f64 {
+        let fine_per_pool_usage = 50_000. * self.gas_price.to_f64_lossy();
+        amount as f64 * 1e18 * fine_per_pool_usage
+    }
     fn find_edge_indices(&self, change_edge: usize) -> (usize, usize) {
         let x: Option<(usize, usize)> = None;
         
@@ -522,9 +571,10 @@ impl Net {
         for edges in &mut self.edges {
             edges.shuffle(&mut rng());
         }
-
+        let mut order_indice = (0..self.n).collect::<Vec<_>>();
+        order_indice.shuffle(&mut rng());
         // First pass: process input tokens
-        for i in 0..self.n {
+        for i in order_indice {
             if self.init[i] > U256::from(0) {
                 stack.push_back(i);
                 dist[i] = 0.;
@@ -546,8 +596,10 @@ impl Net {
         }
 
         // Second pass: process target tokens
-        for i in 0..self.n {
-            if self.target_required[i] > U256::from(0) {
+        order_indice = (0..self.n).collect();
+        order_indice.shuffle(&mut rng());
+        for i in order_indice {
+            if self.target_required[i] > U256::from(0) && dist[i] == 1e9 {
                 stack.push_back(i);
                 dist[i] = 0.;
             }
