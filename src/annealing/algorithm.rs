@@ -90,7 +90,7 @@ impl Annealing {
         });
 
         let mut net = Net::new(args.prices, args.pools, args.orders, allowed_amounts, args.gas_price)?;
-        net.run_simulation(time_ms * 16)
+        net.run_simulation(time_ms)
     }
 }
 
@@ -218,7 +218,7 @@ impl Net {
 
             let mut temp = 100.;
             let mut local_max = cur_eval;
-            let mut change_edge = 0;
+            let mut change_edge=0;
             let mut num_left = 0;
             let mut old_start_vertex = 0;
             while temp >= 0.0000001 {
