@@ -281,9 +281,9 @@ impl Net {
                     let save_target_required = self.target_required[buy_token_int];
                     let save_target_default = self.target_default[buy_token_int];
                     let save_init = self.init[self.currencies_to_int[&cur_order.sell_token]];
-                    self.target_required[buy_token_int] -= U256::from_f64_lossy(cur_order.buy_amount.to_f64_lossy() * cur_portion);
-                    self.target_default[buy_token_int] -= U256::from_f64_lossy(default_buy_amount.to_f64_lossy() * cur_portion);
-                    self.init[sell_token_int] -= U256::from_f64_lossy(cur_order.sell_amount.to_f64_lossy() * cur_portion);
+                    self.target_required[buy_token_int] = self.target_required[buy_token_int].saturating_sub(U256::from_f64_lossy(cur_order.buy_amount.to_f64_lossy() * cur_portion));
+                    self.target_default[buy_token_int] = self.target_default[buy_token_int].saturating_sub(U256::from_f64_lossy(default_buy_amount.to_f64_lossy() * cur_portion));
+                    self.init[sell_token_int] = self.init[sell_token_int].saturating_sub(U256::from_f64_lossy(cur_order.sell_amount.to_f64_lossy() * cur_portion));
                     self.target_required[buy_token_int] += U256::from_f64_lossy(cur_order.buy_amount.to_f64_lossy() * new_portion);
                     self.target_default[buy_token_int] += U256::from_f64_lossy(default_buy_amount.to_f64_lossy() * new_portion);
                     self.init[sell_token_int] += U256::from_f64_lossy(cur_order.sell_amount.to_f64_lossy() * new_portion);
