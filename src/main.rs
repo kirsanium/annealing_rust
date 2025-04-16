@@ -120,6 +120,8 @@ fn parse_orders(filename: &str) -> Result<Vec<Order>, Box<dyn Error>> {
         sell_token: order["sell_token"].as_str().unwrap().to_string(),
         sell_amount: U256::from_f64_lossy(order["sell_amount"].as_f64().unwrap()),
         buy_amount: U256::from_f64_lossy(order["buy_amount"].as_f64().unwrap()),
+        partial: true,
+        portion: 1.0,
     }).collect();
 
     Ok(orders)
@@ -465,13 +467,14 @@ fn run(root_dir: &str, time_limit: u64, threads: usize, verbose: bool) -> Result
 }
 
 fn run_ebbo_tests(root_dir: &str, time_limit: u64, threads: usize) -> Result<(), Box<dyn Error>> {
-    let ebbo_pools = parse_ebbo_liquidities(&Path::new(root_dir).join("ebbo").join("ebbo_pools.json").to_string_lossy())?;
-    let ebbo_orders = parse_orders(&Path::new(root_dir).join("ebbo").join("ebbo_orders.json").to_string_lossy())?;
-    let prices = parse_prices(&Path::new(root_dir).join("ebbo").join("ebbo_prices.json").to_string_lossy())?;
+    let ebbo_path = Path::new(root_dir).join("ebbo");
+    let ebbo_pools = parse_ebbo_liquidities(&ebbo_path.join("ebbo_pools.json").to_string_lossy())?;
+    let ebbo_orders = parse_orders(&ebbo_path.join("ebbo_orders.json").to_string_lossy())?;
+    let ebbo_prices = parse_prices(&ebbo_path.join("ebbo_prices.json").to_string_lossy())?;
     let eval = Annealing::run(threads, time_limit, AnnealingArgs {
-        prices: prices.clone(),
-        pools: ebbo_pools.clone(),
-        orders: ebbo_orders.clone(),
+        prices: ebbo_prices,
+        pools: ebbo_pools,
+        orders: ebbo_orders,
         gas_price: U256::from(3*GWEI),
     }).unwrap();
 
