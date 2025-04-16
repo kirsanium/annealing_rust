@@ -71,15 +71,26 @@ impl Annealing {
             // Было бы хорошо эту часть тоже распарлелить
             // То есть вновь запустить функцию во всех потоках и взять максимум
             let result = net.unwrap().run_simulation(10);
+            let result2 = result.clone();
             let required_buy_amount = order.buy_amount + U256::exp10(32) / args.prices[&order.buy_token];
             if let Ok(eval) = result {
                 if eval.metric > 0. {
-                    let out_amount = eval.interactions
+                    let in_amount = eval.interactions
                         .iter()
-                        .filter(|i| i.out_token_id == order.buy_token)
-                        .map(|i| i.amount_out)
+                        .filter(|i| i.in_token_id == order.sell_token)
+                        .map(|i| i.amount_in)
                         .fold(U256::from(0), |acc, i| acc + i);
-                    allowed_amounts.insert(order.id.clone(), out_amount);
+                    let cur_portion = in_amount.to_f64_lossy() / order.sell_amount.to_f64_lossy();
+                    if cur_portion < 0.000001{
+                        allowed_amounts.insert(order.id.clone(), required_buy_amount);
+                    }else{
+                        let out_amount = eval.interactions
+                            .iter()
+                            .filter(|i| i.out_token_id == order.buy_token)
+                            .map(|i| i.amount_out)
+                            .fold(U256::from(0), |acc, i| acc + i);
+                        allowed_amounts.insert(order.id.clone(), out_amount);
+                    }
                 } else {
                     allowed_amounts.insert(order.id.clone(), required_buy_amount);
                 }
@@ -88,15 +99,31 @@ impl Annealing {
             }
             if order.partial {
                 let mut new_order = order.clone();
-                new_order.buy_amount = if order.portion == 1.0 {
+                let mut cur_portion = 1.0;
+                if let Ok(eval) = result2{
+                    if eval.metric > 0.{
+                        let in_amount = eval.interactions
+                        .iter()
+                        .filter(|i| i.in_token_id == order.sell_token)
+                        .map(|i| i.amount_in)
+                        .fold(U256::from(0), |acc, i| acc + i);
+                        cur_portion = in_amount.to_f64_lossy() / new_order.sell_amount.to_f64_lossy();
+                    }
+                }
+                println!("{}", cur_portion);
+                if cur_portion < 0.000001{
+                    cur_portion = 1.0;
+                }
+                println!("{}", cur_portion);
+                new_order.buy_amount = if cur_portion == 1.0 {
                     order.buy_amount
                 } else {
-                    U256::from_f64_lossy(order.buy_amount.to_f64_lossy() * order.portion)
+                    U256::from_f64_lossy(order.buy_amount.to_f64_lossy() * cur_portion)
                 };
-                new_order.sell_amount = if order.portion == 1.0 {
+                new_order.sell_amount = if cur_portion == 1.0 {
                     order.sell_amount
                 } else {
-                    U256::from_f64_lossy(order.sell_amount.to_f64_lossy() * order.portion)
+                    U256::from_f64_lossy(order.sell_amount.to_f64_lossy() * cur_portion)
                 };
                 new_order.partial = false;
                 updated_orders.push(new_order);
@@ -264,7 +291,7 @@ impl Net {
             let mut edge_or_order = 0;
             let mut old_start_vertex = 0;
             while temp >= 0.0000001 {
-                if (num_left > 0 && edge_or_order == 1) || (any_partials && rng.random_range(0..2) == 0 && num_left == 0){
+                if (num_left > 0 && edge_or_order == 1) || (any_partials && rng.random_range(0..2) == 0 && num_left == 0 && temp <= 0.000001) {
                     if num_left == 0 {
                         change_order = rng.random_range(0..self.orders.len());
                         if self.orders[change_order].partial == false{
@@ -602,6 +629,7 @@ impl Net {
     }
 
     fn set_values_for_chosen_orders(&mut self) {
+    println!("set_values_for_chosen_orders");
         self.prices = vec![U256::from(0); self.n];
         
         let mut flag1 = true;
@@ -615,10 +643,8 @@ impl Net {
                 for order in &self.orders {
                     let sell_idx = self.currencies_to_int[&order.sell_token];
                     let buy_idx = self.currencies_to_int[&order.buy_token];
-
                     let sell_amount = order.sell_amount;
                     let buy_amount = self.allowed_amounts[&order.id];
-                    
                     if self.prices[sell_idx] != U256::from(0) {
                         let limit_price = self.prices[sell_idx] * sell_amount / buy_amount;
                         if self.prices[buy_idx] == U256::from(0) || self.prices[buy_idx] > limit_price {
@@ -646,7 +672,6 @@ impl Net {
                 }
             }
         }
-        
         // Initialize target_default, update buy amounts, and set init/target values
         self.target_default = vec![U256::from(0); self.n];
         for order in &mut self.orders {
