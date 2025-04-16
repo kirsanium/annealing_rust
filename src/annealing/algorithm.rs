@@ -26,6 +26,8 @@ pub struct Order {
     pub sell_amount: U256,
     #[serde_as(as = "serialize::U256")]
     pub buy_amount: U256,
+    pub partial: bool,
+    pub portion: f64
 }
 
 #[derive(Clone)]
@@ -60,11 +62,15 @@ impl Annealing {
     pub fn run(threads: usize, time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
         let mut allowed_amounts = HashMap::new();
         let base_allowed_amounts = args.orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
+        let mut args = args;
+        let mut updated_orders: Vec<Order> = Vec::new();
         for order in &args.orders {
             let net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price);
             if net.is_err() {
                 return Err(AnnealingError::StartFailed);
             }
+            // Было бы хорошо эту часть тоже распарлелить
+            // То есть вновь запустить функцию во всех потоках и взять максимум
             let result = net.unwrap().run_simulation(10);
             let required_buy_amount = order.buy_amount + U256::exp10(32) / args.prices[&order.buy_token];
             if let Ok(eval) = result {
@@ -81,8 +87,19 @@ impl Annealing {
             } else {
                 allowed_amounts.insert(order.id.clone(), required_buy_amount);
             }
+            if order.partial == true{
+                let mut new_order = order.clone();
+                let buy = U256::from_f64_lossy(order.buy_amount.to_f64_lossy() * order.portion);
+                let sell = U256::from_f64_lossy(order.sell_amount.to_f64_lossy() * order.portion);
+                new_order.buy_amount = buy;
+                new_order.sell_amount = sell;
+                new_order.partial = false;
+                updated_orders.push(new_order);
+            }else{
+                updated_orders.push(order.clone());
+            }
         }
-
+        args.orders = updated_orders;
         let profits = args.orders.iter().map(|o| {
             (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
         }).collect::<HashMap<_, _>>();
@@ -90,7 +107,7 @@ impl Annealing {
         allowed_amounts.iter_mut().for_each(|(id, amount)| {
             *amount = *amount - profits[id].checked_div(100.into()).unwrap();
         });
-
+        args.orders.iter_mut().for_each(|o| o.partial = bool::from(false));
         let handles: Vec<_> = (0..threads).map(|_| {
             let args = args.clone();
             let allowed_amounts = allowed_amounts.clone();
@@ -215,6 +232,7 @@ impl Net {
         let init_n = self.clone();
         let mut best_n = self.clone();
         let mut count = 0;
+        let any_partials = self.orders.iter().any(|o| o.partial);
         while start.elapsed() < Duration::from_millis(max_time_ms) {
             count = count + 1;
             println!("Starting new iteration");
@@ -234,9 +252,70 @@ impl Net {
             let mut temp = 100.;
             let mut local_max = cur_eval;
             let mut change_edge=0;
+            let mut change_order = 0;
             let mut num_left = 0;
+            let mut edge_or_order = 0;
             let mut old_start_vertex = 0;
             while temp >= 0.0000001 {
+                if (num_left > 0 && edge_or_order == 1) || (any_partials && rng.random_range(0..2) == 0 && num_left == 0){
+                    if num_left == 0 {
+                        change_order = rng.random_range(0..self.orders.len());
+                        if self.orders[change_order].partial == false{
+                            continue;
+                        }
+                    }
+                    let cur_order = self.orders[change_order].clone();
+                    let cur_portion = cur_order.portion;
+                    let mut new_portion = cur_order.portion * LogNormal::new(0.0, 1./1.5_f64.powf(20.-num_left as f64)).unwrap().sample(&mut rng);
+                    if new_portion > 1.0{
+                        new_portion = 1.0;
+                    }
+                    let buy_token_int = self.currencies_to_int[&cur_order.buy_token];
+                    let sell_token_int = self.currencies_to_int[&cur_order.sell_token];
+                    let default_buy_amount =  self
+                    .save_orders
+                    .iter()
+                    .find(|o| o.id == cur_order.id)
+                    .expect("Order with target_id not found")
+                    .buy_amount;
+                    let save_target_required = self.target_required[buy_token_int];
+                    let save_target_default = self.target_default[buy_token_int];
+                    let save_init = self.init[self.currencies_to_int[&cur_order.sell_token]];
+                    self.target_required[buy_token_int] -= U256::from_f64_lossy(cur_order.buy_amount.to_f64_lossy() * cur_portion);
+                    self.target_default[buy_token_int] -= U256::from_f64_lossy(default_buy_amount.to_f64_lossy() * cur_portion);
+                    self.init[sell_token_int] -= U256::from_f64_lossy(cur_order.sell_amount.to_f64_lossy() * cur_portion);
+                    self.target_required[buy_token_int] += U256::from_f64_lossy(cur_order.buy_amount.to_f64_lossy() * new_portion);
+                    self.target_default[buy_token_int] += U256::from_f64_lossy(default_buy_amount.to_f64_lossy() * new_portion);
+                    self.init[sell_token_int] += U256::from_f64_lossy(cur_order.sell_amount.to_f64_lossy() * new_portion);
+                    self.orders[change_order].portion = new_portion;
+                    let delta = self.eval()?.metric - cur_eval;
+                    let rand_value: f64 = rng.random::<f64>();
+                    if delta > 0.0 || (rand_value < (delta / 1e36 / temp).exp() && num_left == 0) {
+                        cur_eval += delta;
+                    } else {
+                        self.orders[change_order].portion = cur_portion;
+                        self.target_required[buy_token_int] = save_target_required;
+                        self.target_default[buy_token_int] = save_target_default;
+                        self.init[sell_token_int] = save_init;
+                    }
+                    if cur_eval > local_max{
+                        local_max = cur_eval;
+                        edge_or_order = 1;
+                        if temp < 0.001 {
+                            temp = 0.001;
+                        }
+                        num_left = 20;
+                    }
+
+                    if cur_eval > best_eval {
+                        best_eval = cur_eval;
+                        best_n = self.clone();
+                    }
+                    temp *= 0.97;
+                    if num_left > 0{
+                        num_left -= 1;
+                    }
+                }
                 // Choose random edge to modify
                 change_edge = rng.random_range(0..num_edges);
                 let (cur_v, cur_index) = self.find_edge_indices(change_edge);
@@ -293,6 +372,7 @@ impl Net {
                             temp = 0.001;
                         }
                         num_left = 20;
+                        edge_or_order = 0;
                     }
                 }
 
