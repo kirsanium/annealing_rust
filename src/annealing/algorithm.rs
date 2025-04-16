@@ -62,7 +62,6 @@ impl Annealing {
     pub fn run(threads: usize, time_ms: u64, args: AnnealingArgs) -> AnnealingResult {
         let mut allowed_amounts = HashMap::new();
         let base_allowed_amounts = args.orders.iter().map(|o| (o.id.clone(), o.buy_amount)).collect::<HashMap<String, U256>>();
-        let mut args = args;
         let mut updated_orders: Vec<Order> = Vec::new();
         for order in &args.orders {
             let net = Net::new(args.prices.clone(), args.pools.clone(), vec![order.clone()], base_allowed_amounts.clone(), args.gas_price);
@@ -87,19 +86,28 @@ impl Annealing {
             } else {
                 allowed_amounts.insert(order.id.clone(), required_buy_amount);
             }
-            if order.partial == true{
+            if order.partial {
                 let mut new_order = order.clone();
-                let buy = U256::from_f64_lossy(order.buy_amount.to_f64_lossy() * order.portion);
-                let sell = U256::from_f64_lossy(order.sell_amount.to_f64_lossy() * order.portion);
-                new_order.buy_amount = buy;
-                new_order.sell_amount = sell;
+                new_order.buy_amount = if order.portion == 1.0 {
+                    order.buy_amount
+                } else {
+                    U256::from_f64_lossy(order.buy_amount.to_f64_lossy() * order.portion)
+                };
+                new_order.sell_amount = if order.portion == 1.0 {
+                    order.sell_amount
+                } else {
+                    U256::from_f64_lossy(order.sell_amount.to_f64_lossy() * order.portion)
+                };
                 new_order.partial = false;
                 updated_orders.push(new_order);
             }else{
                 updated_orders.push(order.clone());
             }
         }
-        args.orders = updated_orders;
+        let args = AnnealingArgs {
+            orders: updated_orders,
+            ..args
+        };
         let profits = args.orders.iter().map(|o| {
             (o.id.clone(), allowed_amounts[&o.id] - o.buy_amount)
         }).collect::<HashMap<_, _>>();
@@ -107,7 +115,6 @@ impl Annealing {
         allowed_amounts.iter_mut().for_each(|(id, amount)| {
             *amount = *amount - profits[id].checked_div(100.into()).unwrap();
         });
-        args.orders.iter_mut().for_each(|o| o.partial = bool::from(false));
         let handles: Vec<_> = (0..threads).map(|_| {
             let args = args.clone();
             let allowed_amounts = allowed_amounts.clone();
